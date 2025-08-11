@@ -18,6 +18,7 @@ class Message(models.Model):
     id = models.AutoField(primary_key=True)
     from_user = models.BooleanField(default=True)
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE)
+    model_used = models.CharField(max_length=50)
     text = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
