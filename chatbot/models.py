@@ -11,6 +11,8 @@ class User(models.Model):
 class Conversation(models.Model):
     id = models.AutoField(primary_key=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
+    title = models.CharField(max_length=255)  # TODO: incorporate title field in UI
+    last_active = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -20,7 +22,9 @@ class Conversation(models.Model):
 class Message(models.Model):
     id = models.AutoField(primary_key=True)
     from_user = models.BooleanField(default=True)
-    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE)
+    conversation = models.ForeignKey(
+        Conversation, on_delete=models.CASCADE, null=True, blank=True
+    )
     model_used = models.CharField(max_length=50, null=True)
     text = models.TextField(null=True, blank=True)
     json = models.JSONField(null=True, blank=True)

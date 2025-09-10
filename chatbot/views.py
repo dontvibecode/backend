@@ -4,10 +4,23 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
-from chatbot.models import Conversation, Message
+from chatbot.conversation_service import ConversationService
+from chatbot.models import Conversation
 
 from .llm_service import LLMService
-from .serializers import MessageSerializer, serializers
+from .serializers import ConversationSerializer, MessageSerializer
+
+
+class ConversationAPIView(APIView):
+    """
+    API endpoint for managing conversations.
+    """
+
+    def get(self, request, *args, **kwargs):
+        conversations = Conversation.objects.all().order_by("-created_at")
+        output_serializer = ConversationSerializer(conversations, many=True)
+        print("Output serializer data:", output_serializer.data)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
 
 
 class ChatAPIView(APIView):
@@ -18,8 +31,9 @@ class ChatAPIView(APIView):
     def get(self, request, *args, **kwargs):
         conversation_id = kwargs.get("conversation_id")
         try:
-            conversation = Conversation.objects.get(id=conversation_id)
-            messages = conversation.message_set.all().order_by("created_at")
+            messages = ConversationService.get_messages_from_conversation(
+                conversation_id=conversation_id
+            )
             output_serializer = MessageSerializer(messages, many=True)
             return Response(output_serializer.data, status=status.HTTP_200_OK)
         except:
@@ -34,18 +48,24 @@ class ChatAPIView(APIView):
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         validated_data = input_serializer.validated_data
-        llm_service = LLMService(int(validated_data["conversation"].id))
+        if validated_data["conversation"]:
+            llm_service = LLMService(int(validated_data["conversation"].id))
+        else:
+            llm_service = LLMService(None)
 
         try:
             message = llm_service.respond(
                 user_input=validated_data["text"],
                 experience_level="senior",  # TODO: remove hardcoding
             )
+            print("Message from LLMService:", message)
             output_serializer = MessageSerializer(message)
+            print("Output serializer data:", output_serializer.data)
             response = Response(
                 data=output_serializer.data, status=status.HTTP_201_CREATED
             )
             response["Access-Control-Allow-Origin"] = "*"
+            print("Response:", response)
             return response
         except Exception as e:
             return Response(
