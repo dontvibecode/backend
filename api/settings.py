@@ -29,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-x@%87^6nr88^n63#y%+mu41&r$%12d$8!%fi3h)67wjbq(l1c5"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = [
   "dontvibecode-api.onrender.com",
@@ -80,6 +80,10 @@ TEMPLATES = [
 WSGI_APPLICATION = "api.wsgi.application"
 
 CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+]
+
+CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
 ]
 
