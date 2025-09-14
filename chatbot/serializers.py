@@ -2,22 +2,16 @@ from rest_framework import serializers
 from .models import Conversation, Message
 
 
-class ChatInputSerializer(serializers.ModelSerializer):
-    prompt = serializers.CharField(required=True, allow_blank=False)
-    experience_level = serializers.ChoiceField(
-        choices=["beginner", "novice", "junior", "senior"], required=True
-    )
-    conversation_id = serializers.IntegerField()
-
-
 class MessageSerializer(serializers.ModelSerializer):
     conversation = serializers.PrimaryKeyRelatedField(
         queryset=Conversation.objects.all(),
         allow_null=True,
     )
+    experience_level = serializers.CharField(write_only=True, required=True)
+
     class Meta:
         model = Message
-        fields = ["from_user", "conversation", "model_used", "text", "json"]
+        fields = ["from_user", "conversation", "model_used", "text", "json", "experience_level"]
         read_only_fields = ["id", "created_at"]
 
 

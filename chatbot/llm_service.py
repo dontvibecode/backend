@@ -31,11 +31,11 @@ class LLMService:
             from_user=True,
             conversation_id=conversation.id,
             text=user_input,
-            model_used="gemini-2.5-pro",
+            model_used="gemini-2.5-flash-lite",
         )
         prompt = router_prompt.format(user_prompt=user_input)
         response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-pro",
             contents=prompt,
         )
         cleaned_response_text = response.text[7:-3].strip()

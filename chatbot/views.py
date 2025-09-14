@@ -19,7 +19,6 @@ class ConversationAPIView(APIView):
     def get(self, request, *args, **kwargs):
         conversations = Conversation.objects.all().order_by("-created_at")
         output_serializer = ConversationSerializer(conversations, many=True)
-        print("Output serializer data:", output_serializer.data)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
 
 
@@ -54,9 +53,10 @@ class ChatAPIView(APIView):
             llm_service = LLMService(None)
 
         try:
+            print("Validated data:", validated_data)
             message = llm_service.respond(
                 user_input=validated_data["text"],
-                experience_level="senior",  # TODO: remove hardcoding
+                experience_level=validated_data["experience_level"],
             )
             print("Message from LLMService:", message)
             output_serializer = MessageSerializer(message)
