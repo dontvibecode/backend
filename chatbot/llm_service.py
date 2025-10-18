@@ -1,7 +1,8 @@
 from google import genai
 import json
+import os
 
-from chatbot.models import Conversation, Message
+from chatbot.models import Conversation, Message, User
 from chatbot.prompts import router_prompt, instructor_prompt
 
 
@@ -11,7 +12,10 @@ class LLMService:
     """
 
     def __init__(self, conversation_id):
-        self.client = genai.Client()
+        api_key = os.getenv('GEMINI_API_KEY')
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is not set")
+        self.client = genai.Client(api_key=api_key)
         self.conversation_id = conversation_id
 
     def respond(self, user_input, experience_level):
@@ -19,8 +23,11 @@ class LLMService:
             conversation = Conversation.objects.get(id=self.conversation_id)
         else:
             try:
+                # Get or create a default user
+                default_user, created = User.objects.get_or_create(id=1)
+                
                 conversation = Conversation.objects.create(
-                    user_id=0,
+                    user=default_user,
                     title="New Conversation",
                 )
                 self.conversation_id = conversation.id
