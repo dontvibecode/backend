@@ -3,9 +3,37 @@ from django.db import models
 
 class User(models.Model):
     id = models.AutoField(primary_key=True)
+    username = models.CharField(max_length=150, unique=True)
+    method = models.CharField(choices=[('google', 'Google')], default="google")
+    email = models.EmailField(unique=True)
 
     def __str__(self):
-        return self.id
+        return f"User with id:{self.id}"
+
+class Preferences(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='preferences')
+    theme = models.CharField(
+        max_length=10,
+        choices=[('light', 'Light'), ('dark', 'Dark'), ('system', 'System')],
+        default='light'
+    )
+    accent_color = models.CharField(max_length=20, default='blue')
+    language = models.CharField(max_length=10, default='en')
+    profile_image = models.CharField(max_length=255, null=True, blank=True)
+    email_notifications = models.BooleanField(default=True)
+    push_notifications = models.BooleanField(default=True)
+    in_app_notifications = models.BooleanField(default=True)
+    profile_visible = models.BooleanField(default=True)
+    share_data = models.BooleanField(default=False)
+    font_size = models.CharField(
+        max_length=10,
+        choices=[('small', 'Small'), ('medium', 'Medium'), ('large', 'Large')],
+        default='medium'
+    )
+    compact_mode = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Preferences for User {self.user.id}"
 
 
 class Conversation(models.Model):

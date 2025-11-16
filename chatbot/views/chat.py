@@ -1,25 +1,12 @@
-import json
-from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 
-from chatbot.conversation_service import ConversationService
-from chatbot.models import Conversation
+from ..services.conversation import ConversationService
 
-from .llm_service import LLMService
-from .serializers import ConversationSerializer, MessageSerializer
-
-
-class ConversationAPIView(APIView):
-    """
-    API endpoint for managing conversations.
-    """
-
-    def get(self, request, *args, **kwargs):
-        conversations = Conversation.objects.all().order_by("-created_at")
-        output_serializer = ConversationSerializer(conversations, many=True)
-        return Response(output_serializer.data, status=status.HTTP_200_OK)
+from ..services.llm import LLMService
+from ..serializers import MessageSerializer
 
 
 class ChatAPIView(APIView):
@@ -27,11 +14,10 @@ class ChatAPIView(APIView):
     API endpoint for the chat interface.
     """
 
-    def get(self, request, *args, **kwargs):
-        conversation_id = kwargs.get("conversation_id")
+    def get(self, request, pk):
         try:
             messages = ConversationService.get_messages_from_conversation(
-                conversation_id=conversation_id
+                conversation_id=pk
             )
             output_serializer = MessageSerializer(messages, many=True)
             return Response(output_serializer.data, status=status.HTTP_200_OK)
@@ -40,7 +26,7 @@ class ChatAPIView(APIView):
                 {"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request):
         # Handle incoming user messages
         input_serializer = MessageSerializer(data=request.data)
         if not input_serializer.is_valid():
@@ -48,9 +34,9 @@ class ChatAPIView(APIView):
 
         validated_data = input_serializer.validated_data
         if validated_data["conversation"]:
-            llm_service = LLMService(int(validated_data["conversation"].id))
+            llm_service = LLMService(int(validated_data["conversation"].id), user_id=request.user.id)
         else:
-            llm_service = LLMService(None)
+            llm_service = LLMService(None, user_id=request.user.id)
 
         try:
             print("Validated data:", validated_data)

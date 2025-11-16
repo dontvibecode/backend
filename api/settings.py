@@ -33,8 +33,9 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = [
   "localhost",
-  "127.0.0.1'",
+  "127.0.0.1",
   "dontvibecode-api.onrender.com",
+  'dontvibecode.uc.r.appspot.com'
 ]
 
 # Application definition
@@ -47,6 +48,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "rest_framework.authtoken",
+    "rest_framework_simplejwt",
     "corsheaders",
     "chatbot",
 ]
@@ -79,6 +82,15 @@ TEMPLATES = [
     },
 ]
 
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'chatbot.authentication.GoogleIDTokenAuthentication', 
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}
+
 WSGI_APPLICATION = "api.wsgi.application"
 
 CORS_ALLOWED_ORIGINS = [
@@ -87,6 +99,12 @@ CORS_ALLOWED_ORIGINS = [
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
+]
+
+CORS_ALLOW_HEADERS = [
+    'content-type',
+    'authorization',
+    'access-control-request-headers',
 ]
 
 # Database

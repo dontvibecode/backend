@@ -10,9 +10,10 @@ class LLMService:
     A service class for processing user inputs and interacting with LLM APIs.
     """
 
-    def __init__(self, conversation_id):
+    def __init__(self, conversation_id, user_id):
         self.client = genai.Client()
         self.conversation_id = conversation_id
+        self.user_id = user_id
 
     def respond(self, user_input, experience_level):
         if self.conversation_id is not None:
@@ -20,7 +21,7 @@ class LLMService:
         else:
             try:
                 conversation = Conversation.objects.create(
-                    user_id=0,
+                    user_id=self.user_id,
                     title="New Conversation",
                 )
                 self.conversation_id = conversation.id

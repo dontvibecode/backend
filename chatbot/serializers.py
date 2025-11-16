@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Conversation, Message
+from .models import Conversation, Message, Preferences, User
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -18,5 +18,59 @@ class MessageSerializer(serializers.ModelSerializer):
 class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
-        fields = ["id", "user", "title", "last_active", "created_at"]
+        fields = ["id", "user", "title", "last_active"]
         read_only_fields = ["id", "created_at"]
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["username", "email", "method"]
+        read_only_fields = ["id"]
+    
+class PreferencesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Preferences
+        fields = [
+            "theme",
+            "accent_color",
+            "language",
+            "profile_image",
+            "email_notifications",
+            "push_notifications",
+            "in_app_notifications",
+            "profile_visible",
+            "share_data",
+            "font_size",
+            "compact_mode",
+        ]
+        read_only_fields = ["id", "user"]
+    
+class UserWithPreferencesSerializer(UserSerializer):
+    preferences = PreferencesSerializer()
+
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "preferences"]
+        read_only_fields = ["id", "preferences"]
+    
+    def update(self, instance, validated_data):
+        print("\n\n\nValidated data for update:", validated_data)
+        preferences_data = validated_data.pop('preferences', None)
+
+        print("\n\n\nPreferences data to update:", preferences_data)
+        print("\n\n\nUser data after popping:", validated_data)
+
+        validated_data.pop('email', None)
+
+        for key, value in validated_data.items():
+            setattr(instance, key, value)
+        instance.save()
+
+        if preferences_data:
+            preferences = getattr(instance, 'preferences', None)
+            if preferences:
+                for key, value in preferences_data.items():
+                    setattr(preferences, key, value)
+                preferences.save()
+        
+        return instance
