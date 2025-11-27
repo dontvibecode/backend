@@ -14,7 +14,7 @@ env_variables:
   
   GS_BUCKET_NAME: "dontvibecode_dontvibecode-dev"
   
-  GEMINI_API_KEY: "AIzaSyDxuQDREo47v36hfL4jio98ZE8DzgUfHqY"
+  GEMINI_API_KEY: "AIzaSyDBi4pGHLj7PZ5nx7I1ENRa-BEuaia_bZU"
   DEBUG: True
   SECRET_KEY: django-insecure-x@%87^6nr88^n63#y%+mu41&r$%12d$8!%fi3h)67wjbq(l1c5
 

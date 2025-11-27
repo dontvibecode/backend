@@ -36,7 +36,7 @@ class LLMService:
         )
         prompt = router_prompt.format(user_prompt=user_input)
         response = self.client.models.generate_content(
-            model="gemini-2.5-pro",
+            model="gemini-2.5-flash",
             contents=prompt,
         )
         cleaned_response_text = response.text[7:-3].strip()
