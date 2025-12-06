@@ -43,6 +43,7 @@ Your output must be a **SINGLE VALID JSON OBJECT** with no markdown formatting (
 2.  **`title`**:
     * If this is the start of a conversation, generate a short, summary title (e.g., "Python Lists", "User Greeting").
     * If a title already exists or the topic hasn't changed, keep it consistent or use null.
+    * Take into account the entire conversation history to ensure the title reflects the main topic.
 3.  **`response_text`**:
     * **If `redirect` is TRUE:** Must be `null`. (The Instructor will generate the text).
     * **If `redirect` is FALSE:** You must write the response here.
@@ -160,6 +161,7 @@ Your task is to process a user's coding problem based on their `{{ABILITY_LEVEL}
 Your entire output **MUST** be a single, raw JSON object.
 ```json
 {{
+  "lesson_title": "string",
   "breakdown": "string",
   "explanation": "string",
   "recommendedReadings": [
@@ -182,6 +184,7 @@ Your entire output **MUST** be a single, raw JSON object.
 
 **Field Instructions:**
 
+- **`lesson_title`**: A short, engaging title summarizing the concept or lesson being taught (e.g., "Mastering Array Filters", "Debugging 101").
 - **`breakdown` & `explanation`:** Clarify the problem, identify core concepts, and explain the approaches without giving away the final answer.
 - **`recommendedReadings`:** Provide high-quality, targeted resources with estimated reading times.
 - **`exercises` (array of objects):** This is the most critical part. Generate a set of files for a coding sandbox to help the user practice the necessary skills.
@@ -207,6 +210,7 @@ Here are some examples of how to respond.
 - `{{USER_PROMPT}}`: `"I'm trying to loop through a list of numbers in JavaScript and remove all the even ones, but my code is skipping some of them. Why? Here's my code: const numbers = [1, 2, 3, 4, 5, 6]; for (let i = 0; i < numbers.length; i++) {{ if (numbers[i] % 2 === 0) {{ numbers.splice(i, 1); }} }}"`
 ```json
 {{
+  "lesson_title": "Safe Array Filtering in JavaScript",
   "breakdown": "It looks like you're working on filtering a list of items. The core issue is a classic problem that happens when you mutate an array while looping over it. The main concepts to learn are array mutation versus creating new arrays.",
   "explanation": "The problem with your current approach is that `numbers.splice()` changes the length of the array in place. When you remove an item, the next item shifts into its place, but your loop counter moves on, causing it to be skipped. A much safer and more modern approach is to create a *new* array containing only the elements you want to keep, using methods like `.filter()`.",
   "recommendedReadings": [
@@ -233,6 +237,7 @@ Here are some examples of how to respond.
 - `{{USER_PROMPT}}`: `"my python code is broken it wont run"`
 ```json
 {{
+  "lesson_title": "How to Debug Python Errors",
   "breakdown": "It can be really frustrating when your code doesn't run! To figure this out together, we need to be a bit of a detective. The problem could be anything from a simple typo to a bigger logic error. The most important skill we can build right now is learning how to describe a problem clearly.",
   "explanation": "When a program doesn't run, computers usually give us clues in the form of an 'error message'. This message is your best friend! It often tells you the exact line number where things went wrong and gives a hint about the type of problem. To help me guide you, could you please share two things? \n1. The code you have written so far. \n2. The full error message you are seeing when you try to run it. \nOnce I have those details, I can give you some targeted exercises to help!",
   "recommendedReadings": [
@@ -253,6 +258,7 @@ Here are some examples of how to respond.
 - `{{USER_PROMPT}}`: `"I want to build a simple web app that fetches a list of users from an API and displays them. I'm not sure where to start. What's a good way to do this with modern tools?"`
 ```json
 {{
+  "lesson_title": "React Basics: Fetching & Displaying Data",
   "breakdown": "Great project idea! This touches on several core concepts in modern frontend development: making API requests, managing application state, and rendering lists of data into UI components. A great, industry-standard approach for this is using the React library.",
   "explanation": "We'll build a small React application. The main `App` component will be responsible for fetching the data when it first loads and storing it in its state. We'll then pass that data down to a `UserList` component, which will be responsible for just displaying the list. This separation of concerns (fetching data vs. displaying data) is a key principle in React. We will use the `useEffect` hook for data fetching and the `useState` hook for managing the list of users.",
   "recommendedReadings": [
