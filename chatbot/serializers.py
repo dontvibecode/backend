@@ -11,14 +11,14 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Message
-        fields = ["from_user", "conversation", "model_used", "text", "json", "experience_level"]
+        fields = ["id", "created_at", "from_user", "conversation", "model_used", "text", "json", "experience_level"]
         read_only_fields = ["id", "created_at"]
 
 
 class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
-        fields = ["id", "user", "title", "last_active"]
+        fields = ["id", "user", "title", "last_active", "pinned", "created_at"]
         read_only_fields = ["id", "created_at"]
 
 class UserSerializer(serializers.ModelSerializer):
@@ -31,6 +31,8 @@ class PreferencesSerializer(serializers.ModelSerializer):
     class Meta:
         model = Preferences
         fields = [
+            "id",
+            "user",
             "theme",
             "accent_color",
             "language",

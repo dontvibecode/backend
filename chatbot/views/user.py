@@ -48,20 +48,14 @@ class UserWithPreferencesAPIView(APIView):
         """
         try:
             user = self.service.get_user_by_email_with_preferences(email=email)
-            print("#1")
             if not user:
                 return Response(
                     {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
                 )
-            print("#2")
             output_serializer = UserWithPreferencesSerializer(user)
-            print("#3")
             return Response(output_serializer.data, status=status.HTTP_200_OK)
         
         except Exception as e:
-            print("#4")
-            print(e.args)
-            print('#5')
             return Response(
                 {"error": "An error occurred when fetching user data."}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

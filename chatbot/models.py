@@ -39,7 +39,8 @@ class Preferences(models.Model):
 class Conversation(models.Model):
     id = models.AutoField(primary_key=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    title = models.CharField(max_length=255)  # TODO: incorporate title field in UI
+    title = models.CharField(max_length=255)
+    pinned = models.BooleanField(default=False)
     last_active = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
