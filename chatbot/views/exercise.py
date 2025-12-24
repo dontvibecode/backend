@@ -20,10 +20,7 @@ class ExerciseAPIView(APIView):
             exercise = Exercise.objects.get(id=exercise_id)
             data = {
                 "id": exercise.id,
-                "filename": exercise.filename,
-                "text": exercise.text,
-                "code": exercise.code,
-                "message_id": exercise.message.id,
+                "files": exercise.files.values("filename", "text", "code"),
             }
             return Response(data, status=status.HTTP_200_OK)
         except Exercise.DoesNotExist:
