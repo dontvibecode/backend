@@ -76,3 +76,14 @@ class UserWithPreferencesSerializer(UserSerializer):
                 preferences.save()
         
         return instance
+    
+
+class ExerciseSubmissionSerializer(serializers.Serializer):
+    ability_level = serializers.ChoiceField(
+        choices=["beginner", "novice", "junior", "senior"],
+        required=True
+    )
+    message = serializers.JSONField(required=True)
+    original_exercise = serializers.CharField(required=True)
+    user_submission = serializers.CharField(required=True)
+    

@@ -1,5 +1,7 @@
 from django.urls import path
 
+from .views.exercise import ExerciseAPIView, ExerciseSubmissionAPIView
+
 from .views.user import UserWithPreferencesAPIView
 from .views.user_preference import PreferencesAPIView
 from .views.chat import ChatAPIView
@@ -16,4 +18,6 @@ urlpatterns = [
     path('user/<str:email>/', UserWithPreferencesAPIView.as_view(), name='edit_user'),
     path('user/', UserWithPreferencesAPIView.as_view(), name='create_user'),
     path('user/preferences/<int:pk>/', PreferencesAPIView.as_view(), name='get_preferences_by_user_id'),
+    path('exercise/submit/', ExerciseSubmissionAPIView.as_view(), name='submit_exercise'),
+    path('exercise/new/<int:message_id>', ExerciseAPIView.as_view(), name='create_exercise'),
 ]

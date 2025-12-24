@@ -2,8 +2,8 @@ from google import genai
 from google.genai import types
 import json
 
-from chatbot.models import Conversation, Message
-from chatbot.prompts import router_prompt, instructor_prompt
+from chatbot.models import Conversation, ExerciseFile, Message, Exercise
+from chatbot.prompts import router_prompt, instructor_prompt, exercise_evaluator_prompt, exercise_generator_prompt
 
 
 class LLMService:
@@ -81,6 +81,24 @@ class LLMService:
                 model_used="gemini-2.5-pro",
                 json=final_response,
             )
+            print("Message creation succeeded.")
+            exercises = final_response["exercises"]
+            print("Exercises to be created:", exercises)
+            print("Type of exercises variable:", type(exercises))
+            new_exercise = Exercise.objects.create(
+                message=message,
+            )
+            for exercise_file in exercises:
+                try:
+                    ExerciseFile.objects.create(
+                        exercise=new_exercise,
+                        filename=exercise_file["filename"],
+                        text=exercise_file["text"],
+                        code=exercise_file["code"],
+                    )
+                except Exception as e:
+                    print("Failed to create exercise:", e)
+                    raise
             print("Message created:", message)
             return message
         else:
@@ -140,3 +158,45 @@ class LLMService:
             formatted_history.append({"role": role, "parts": [content]})
 
         return formatted_history
+
+    def mark_exercise(self, ability_level, message, original_exercise, user_submission):
+        """
+        Gives feedback for a particular coding exercise when the user submits it.
+        """
+        prompt = exercise_evaluator_prompt.format(
+            ability_level=ability_level,
+            message=message,
+            original_exercise=original_exercise,
+            user_submission=user_submission,
+        )
+        print("Exercise Evaluator Prompt successfully created.")
+        response = self.client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        print("Exercise Evaluator response text:", response.text)
+        return response.text
+    
+    def generate_exercise(self, ability_level, full_message, exercise_files_text):
+        """
+        Generates a new coding exercise based on the provided message and exercise files.
+        """
+        prompt = exercise_generator_prompt.format(
+            ability_level=ability_level,
+            message=full_message,
+            exercise_files=exercise_files_text,
+        )
+        print("Exercise Generation Prompt successfully created.")
+        response = self.client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        print("Exercise Generation response text:", response.text)
+        try:
+            exercise_data = json.loads(response.text, strict=False)
+            return exercise_data
+        except json.JSONDecodeError as e:
+            print("JSON decoding error during exercise generation:", e)
+            raise e

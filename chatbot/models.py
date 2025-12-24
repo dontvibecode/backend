@@ -66,3 +66,21 @@ class Message(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+
+class Exercise(models.Model):
+    id = models.AutoField(primary_key=True)
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='exercises')
+    
+    def __str__(self):
+        return f"Exercise {self.filename}"
+
+class ExerciseFile(models.Model):
+    id = models.AutoField(primary_key=True)
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='files')
+    filename = models.CharField(max_length=255)
+    text = models.TextField()
+    code = models.TextField()
+
+    def __str__(self):
+        return f"File {self.filename} for Exercise {self.exercise.id}"
