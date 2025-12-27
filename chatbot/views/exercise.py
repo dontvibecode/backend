@@ -18,7 +18,7 @@ class ExerciseAPIView(APIView):
         """
         try:
             exercises = list(Exercise.objects.filter(message=message_id))
-            data = {exercise.id : list(exercise.files.all().values()) for exercise in exercises}
+            data = {exercise.id : {"correctness": exercise.correctness, "files": list(exercise.files.all().values())} for exercise in exercises}
             return Response(data, status=status.HTTP_200_OK)
         except Exercise.DoesNotExist:
             return Response({"error": "Exercise not found."}, status=status.HTTP_404_NOT_FOUND)
