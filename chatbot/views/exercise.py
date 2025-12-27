@@ -40,7 +40,7 @@ class ExerciseAPIView(APIView):
         llm_service = LLMService(None, request.user.id)
         response = llm_service.generate_exercise(
             ability_level=ability_level,
-            full_message=json.dumps(message.json),
+            message=message,
             exercise_files_text=exercise_files_text,
         )
         return Response(response, status=status.HTTP_201_CREATED)

@@ -187,10 +187,11 @@ class LLMService:
         print("Exercise correctness updated.")
         return response.text
     
-    def generate_exercise(self, ability_level, full_message, exercise_files_text):
+    def generate_exercise(self, ability_level, message, exercise_files_text):
         """
         Generates a new coding exercise based on the provided message and exercise files.
         """
+        full_message = json.dumps(message.json)
         prompt = exercise_generator_prompt.format(
             ability_level=ability_level,
             message=full_message,
@@ -205,6 +206,17 @@ class LLMService:
         print("Exercise Generation response text:", response.text)
         try:
             exercise_data = json.loads(response.text, strict=False)
+            Exercise.objects.create(
+                message=message,
+                exercises=exercise_data["exercises"],
+            )
+            for exercise in exercise_data["exercises"]:
+                ExerciseFile.objects.create(
+                    exercise=exercise,
+                    filename=exercise["filename"],
+                    text=exercise["text"],
+                    code=exercise["code"],
+                )
             return exercise_data
         except json.JSONDecodeError as e:
             print("JSON decoding error during exercise generation:", e)
