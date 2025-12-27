@@ -40,6 +40,7 @@ class Conversation(models.Model):
     id = models.AutoField(primary_key=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     title = models.CharField(max_length=255)
+    tags = models.JSONField(default=list, blank=True)
     pinned = models.BooleanField(default=False)
     last_active = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -71,6 +72,7 @@ class Message(models.Model):
 class Exercise(models.Model):
     id = models.AutoField(primary_key=True)
     message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='exercises')
+    correctness = models.IntegerField(null=True, blank=True, choices=[(0, 'Incorrect'), (1, 'Nearly'), (2, 'Correct')])
     
     def __str__(self):
         return f"Exercise {self.filename}"
@@ -81,6 +83,7 @@ class ExerciseFile(models.Model):
     filename = models.CharField(max_length=255)
     text = models.TextField()
     code = models.TextField()
+    user_submission = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return f"File {self.filename} for Exercise {self.exercise.id}"

@@ -99,6 +99,9 @@ class LLMService:
                 except Exception as e:
                     print("Failed to create exercise:", e)
                     raise
+            conversation.tags = final_response["tags"]
+            print("Updating conversation tags to:", conversation.tags)
+            conversation.save(update_fields=["tags"])
             print("Message created:", message)
             return message
         else:
@@ -159,10 +162,12 @@ class LLMService:
 
         return formatted_history
 
-    def mark_exercise(self, ability_level, message, original_exercise, user_submission):
+    def mark_exercise(self, ability_level, message, exercise_id, user_submission):
         """
         Gives feedback for a particular coding exercise when the user submits it.
         """
+        exercise = Exercise.objects.get(id=exercise_id)
+        original_exercise = json.dumps(list(exercise.files.values("filename", "text", "code")))
         prompt = exercise_evaluator_prompt.format(
             ability_level=ability_level,
             message=message,
@@ -176,6 +181,10 @@ class LLMService:
             config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
         print("Exercise Evaluator response text:", response.text)
+        exercise.correctness = json.loads(response.text, strict=False).get("correctness")
+        print("Updating exercise correctness to:", exercise.correctness)
+        exercise.save(update_fields=["correctness"])
+        print("Exercise correctness updated.")
         return response.text
     
     def generate_exercise(self, ability_level, full_message, exercise_files_text):
@@ -200,3 +209,17 @@ class LLMService:
         except json.JSONDecodeError as e:
             print("JSON decoding error during exercise generation:", e)
             raise e
+    
+    def save_user_submission(self, exercise_file_id, user_submission):
+        """
+        Saves the user's submission for a specific exercise file.
+        """
+        try:
+            exercise_file = ExerciseFile.objects.get(id=exercise_file_id)
+            exercise_file.user_submission = user_submission
+            exercise_file.save(update_fields=["user_submission"])
+            print("User submission saved for ExerciseFile ID:", exercise_file_id)
+            return {"status": "success"}
+        except ExerciseFile.DoesNotExist:
+            print("ExerciseFile not found for ID:", exercise_file_id)
+            return {"status": "error", "message": "Exercise file not found."}

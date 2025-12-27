@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views.exercise import ExerciseAPIView, ExerciseSubmissionAPIView
+from .views.exercise import ExerciseAPIView, ExerciseSubmissionAPIView, ExerciseSaveAPIView
 
 from .views.user import UserWithPreferencesAPIView
 from .views.user_preference import PreferencesAPIView
@@ -21,4 +21,5 @@ urlpatterns = [
     path('exercise/<int:exercise_id>/', ExerciseAPIView.as_view(), name='get_exercise'),
     path('exercise/submit/', ExerciseSubmissionAPIView.as_view(), name='submit_exercise'),
     path('exercise/new/<int:message_id>', ExerciseAPIView.as_view(), name='create_exercise'),
+    path('exercise/save/', ExerciseSaveAPIView.as_view(), name='save_exercise')
 ]

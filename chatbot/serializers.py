@@ -18,7 +18,7 @@ class MessageSerializer(serializers.ModelSerializer):
 class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
-        fields = ["id", "user", "title", "last_active", "pinned", "created_at"]
+        fields = ["id", "user", "title", "last_active", "pinned", "created_at", "tags"]
         read_only_fields = ["id", "created_at"]
 
 class UserSerializer(serializers.ModelSerializer):
@@ -83,7 +83,8 @@ class ExerciseSubmissionSerializer(serializers.Serializer):
         choices=["beginner", "novice", "junior", "senior"],
         required=True
     )
-    message = serializers.JSONField(required=True)
-    original_exercise = serializers.CharField(required=True)
-    user_submission = serializers.CharField(required=True)
+    message_id = serializers.IntegerField(required=True)
+    exercise_id = serializers.IntegerField(required=True)
+    exercise_file_ids = serializers.ListField(child=serializers.IntegerField(), required=True)
+    user_submissions = serializers.ListField(child=serializers.CharField(), required=True)
     

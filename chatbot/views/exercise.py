@@ -62,11 +62,48 @@ class ExerciseSubmissionAPIView(APIView):
         llm_service = LLMService(None, request.user.id)
         validated_data = input_serializer.validated_data
         print("Validated data for exercise submission:", validated_data)
+        full_message = Message.objects.get(id=validated_data["message_id"]).json
+        user_submissions = validated_data["user_submissions"]
+        exercise_file_ids = validated_data["exercise_file_ids"]
         response = llm_service.mark_exercise(
             ability_level=validated_data["ability_level"],
-            message=validated_data["message"],
-            original_exercise=validated_data["original_exercise"],
-            user_submission=validated_data["user_submission"],
+            message=full_message,
+            exercise_id=validated_data["exercise_id"],
+            user_submission=json.dumps(user_submissions),
         )
+        if not user_submissions or not exercise_file_ids or len(user_submissions) != len(exercise_file_ids):
+            return Response(
+                {"error": "Invalid input data."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        for i in range(len(user_submissions)):
+            llm_service.save_user_submission(
+                exercise_file_id=exercise_file_ids[i],
+                user_submission=user_submissions[i],
+            )
         print("LLMService response for marking user data:", response)
         return Response(response, status=status.HTTP_200_OK)
+
+
+class ExerciseSaveAPIView(APIView):
+    """
+    API view to save user submissions for exercises.
+    """
+    def post(self, request):
+        """
+        Save the user's submission for a specific exercise. Expects a list of submissions and corresponding list of exercise file IDs.
+        """
+        user_submissions = request.data.get("user_submissions")
+        exercise_file_ids = request.data.get("exercise_file_ids")
+        if not user_submissions or not exercise_file_ids or len(user_submissions) != len(exercise_file_ids):
+            return Response(
+                {"error": "Invalid input data."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        llm_service = LLMService(None, request.user.id)
+        for i in range(len(user_submissions)):
+            llm_service.save_user_submission(
+                exercise_file_id=exercise_file_ids[i],
+                user_submission=user_submissions[i],
+            )
+        return Response(
+            {"status": "User submissions saved."}, status=status.HTTP_200_OK
+        )
