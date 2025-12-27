@@ -12,16 +12,13 @@ class ExerciseAPIView(APIView):
     API view to handle exercise-related requests.
     """
 
-    def get(self, request, exercise_id):
+    def get(self, request, message_id):
         """
-        Retrieve an exercise by its ID.
+        Retrieve all exercises by associated message ID.
         """
         try:
-            exercise = Exercise.objects.get(id=exercise_id)
-            data = {
-                "id": exercise.id,
-                "files": exercise.files.values("filename", "text", "code"),
-            }
+            exercises = list(Exercise.objects.filter(message=message_id))
+            data = {exercise.id : list(exercise.files.all().values()) for exercise in exercises}
             return Response(data, status=status.HTTP_200_OK)
         except Exercise.DoesNotExist:
             return Response({"error": "Exercise not found."}, status=status.HTTP_404_NOT_FOUND)

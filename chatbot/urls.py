@@ -18,8 +18,8 @@ urlpatterns = [
     path('user/<str:email>/', UserWithPreferencesAPIView.as_view(), name='edit_user'),
     path('user/', UserWithPreferencesAPIView.as_view(), name='create_user'),
     path('user/preferences/<int:pk>/', PreferencesAPIView.as_view(), name='get_preferences_by_user_id'),
-    path('exercise/<int:exercise_id>/', ExerciseAPIView.as_view(), name='get_exercise'),
+    path('exercise/<int:message_id>/', ExerciseAPIView.as_view(), name='get_exercises'),
     path('exercise/submit/', ExerciseSubmissionAPIView.as_view(), name='submit_exercise'),
     path('exercise/new/<int:message_id>', ExerciseAPIView.as_view(), name='create_exercise'),
-    path('exercise/save/', ExerciseSaveAPIView.as_view(), name='save_exercise')
+    path('exercise/save/', ExerciseSaveAPIView.as_view(), name='save_exercise'),
 ]
