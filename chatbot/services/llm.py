@@ -206,7 +206,7 @@ class LLMService:
         print("Exercise Generation response text:", response.text)
         try:
             exercise_data = json.loads(response.text, strict=False)
-            new_exercise =Exercise.objects.create(
+            new_exercise = Exercise.objects.create(
                 message=message,
             )
             for exercise in exercise_data["exercises"]:
@@ -216,7 +216,11 @@ class LLMService:
                     text=exercise["text"],
                     code=exercise["code"],
                 )
-            return exercise_data
+            final_response = {
+                "id": new_exercise.id,
+                "files": exercise_data["exercises"],
+            }
+            return final_response
         except json.JSONDecodeError as e:
             print("JSON decoding error during exercise generation:", e)
             raise e

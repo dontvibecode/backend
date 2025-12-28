@@ -28,21 +28,20 @@ class ExerciseAPIView(APIView):
         """
         Create a new exercise.
         """
-        message = Message.objects.get(id=message_id)
-        ability_level = request.data.get("ability_level", "beginner")
-        # Convert the QuerySet to a list of dictionaries immediately
-        exercise_files_text = json.dumps([
-            list(exercise.files.values('filename', 'text', 'code')) 
-            for exercise in message.exercises.all()
-        ])
+        try:
+            message = Message.objects.get(id=message_id)
+        except Message.DoesNotExist:
+            return Response({"error": "Message not found."}, status=status.HTTP_404_NOT_FOUND)        
         llm_service = LLMService(None, request.user.id)
         response = llm_service.generate_exercise(
-            ability_level=ability_level,
+            ability_level=request.data.get("ability_level", "beginner"),
             message=message,
-            exercise_files_text=exercise_files_text,
+            exercise_files_text=json.dumps([
+                list(exercise.files.values('filename', 'text', 'code')) 
+                for exercise in message.exercises.all()
+            ]),
         )
         return Response(response, status=status.HTTP_201_CREATED)
-
         
 
 
