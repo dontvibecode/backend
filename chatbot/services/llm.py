@@ -206,13 +206,12 @@ class LLMService:
         print("Exercise Generation response text:", response.text)
         try:
             exercise_data = json.loads(response.text, strict=False)
-            Exercise.objects.create(
+            new_exercise =Exercise.objects.create(
                 message=message,
-                exercises=exercise_data["exercises"],
             )
             for exercise in exercise_data["exercises"]:
                 ExerciseFile.objects.create(
-                    exercise=exercise,
+                    exercise=new_exercise,
                     filename=exercise["filename"],
                     text=exercise["text"],
                     code=exercise["code"],
