@@ -82,11 +82,15 @@ class LLMService:
                 json=final_response,
             )
             print("Message creation succeeded.")
+            exercise_title = final_response["exercise_title"]
+            exercise_tags = final_response["exercise_tags"]
             exercises = final_response["exercises"]
             print("Exercises to be created:", exercises)
             print("Type of exercises variable:", type(exercises))
             new_exercise = Exercise.objects.create(
                 message=message,
+                title=exercise_title,
+                tags=exercise_tags,
             )
             for exercise_file in exercises:
                 try:
@@ -206,8 +210,12 @@ class LLMService:
         print("Exercise Generation response text:", response.text)
         try:
             exercise_data = json.loads(response.text, strict=False)
+            exercise_title = exercise_data["exercise_title"]
+            exercise_tags = exercise_data["exercise_tags"]
             new_exercise = Exercise.objects.create(
                 message=message,
+                title=exercise_title,
+                tags=exercise_tags,
             )
             for exercise in exercise_data["exercises"]:
                 ExerciseFile.objects.create(

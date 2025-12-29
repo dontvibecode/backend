@@ -430,6 +430,8 @@ Your response must be a **SINGLE, VALID JSON OBJECT** with NO markdown formattin
       "readingTime": number
     }}
   ],
+  "exercise_title": "string",
+  "exercise_tags": ["string", "string", "string"],
   "exercises": [
     {{
       "filename": "string",
@@ -470,6 +472,16 @@ Your response must be a **SINGLE, VALID JSON OBJECT** with NO markdown formattin
   - `Url`: Valid, working URL to the resource
   - `sourceDescription`: 1-2 sentences explaining why this resource is valuable
   - `readingTime`: Estimated minutes to read (be realistic)
+
+**`exercise_title`** (string):
+- A short, descriptive title for the ONE exercise in this response.
+- Should be based ONLY on the content of the exercise files (the code + instructions in `exercises`), not on broader conversation history.
+- Aim for something UI-friendly (3-8 words). Exact wording is at your discretion.
+
+**`exercise_tags`** (array of strings):
+- Generate **2-5 tags** (absolute max 5; in most cases ~3) describing ONLY the exercise content.
+- Tags should be similar in style to conversation tags (Title Case, specific when possible), but MUST be scoped to the exercise files (e.g., if the exercise is about list filtering in Python, include tags like "Python", "List Comprehension", "Filtering"—do NOT include unrelated conversation themes).
+- Do NOT mirror the full conversation tag set; exercise tags should be much tighter and exercise-specific.
 
 **`exercises`** (array):
 - **MUST contain EXACTLY ONE exercise** (but that exercise can have multiple files)
@@ -646,6 +658,8 @@ Message 7: ["Python", "Functional Programming", "Lambda", "Map", "Filter", "Redu
       "readingTime": 10
     }}
   ],
+  "exercise_title": "Implement Binary Search",
+  "exercise_tags": ["Python", "Binary Search", "Algorithms"],
   "exercises": [
     {{
       "filename": "binary_search.py",
@@ -680,6 +694,8 @@ Message 7: ["Python", "Functional Programming", "Lambda", "Map", "Filter", "Redu
       "readingTime": 10
     }}
   ],
+  "exercise_title": "Fetch Users with Loading + Error States",
+  "exercise_tags": ["React", "API Fetching", "Error Handling", "useEffect Hook"],
   "exercises": [
     {{
       "filename": "App.js",
@@ -832,9 +848,12 @@ You will receive the following inputs:
 **message**: The complete AI-generated lesson message as stringified JSON. This contains:
 - `lesson_title`: The lesson/concept being taught.
 - `breakdown`, `explanation`: Context about what the user was learning.
+- `exercise_title`, `exercise_tags`: Exercise-level metadata for the ONE exercise in the lesson.
 - `exercises`: Array of exercise files with `filename`, `text` (description), and `code` (original exercise with TODOs).
 
-**original_exercise**: The specific exercise(s) the user was completing. This may duplicate data from message but provides explicit clarity on what to evaluate against. Structure matches the exercise format (array of objects with `filename`, `text`, `code`).
+**original_exercise**: The specific exercise(s) the user was completing. This may duplicate data from message but provides explicit clarity on what to evaluate against.
+- Structure typically matches the exercise format (array of objects with `filename`, `text`, `code`).
+- It may also include exercise-level metadata (`exercise_title`, `exercise_tags`) alongside the file list. If present, use these only as high-level context; do NOT grade based on tags/title.
 
 **user_submission**: The user's attempted solution. Structure should mirror the exercise format - an array of objects containing `filename` and `code` fields.
 
@@ -1538,6 +1557,8 @@ Your response must be a **SINGLE, VALID JSON OBJECT** with NO markdown formattin
 **Structure:**
 ```json
 {{
+  "exercise_title": "string",
+  "exercise_tags": ["string", "string", "string"],
   "exercises": [
     {{
       "filename": "string",
@@ -1549,6 +1570,14 @@ Your response must be a **SINGLE, VALID JSON OBJECT** with NO markdown formattin
 ```
 
 **Field Specifications:**
+
+**`exercise_title`** (string):
+- A short, descriptive title for this newly generated exercise.
+- Should be based ONLY on the content of the exercise files you generate in `exercises`.
+
+**`exercise_tags`** (array of strings):
+- Generate **2-5 tags** (absolute max 5; in most cases ~3) describing ONLY the exercise content (file instructions + code + TODOs).
+- Keep tags tight and specific; do NOT reuse the lesson/conversation tags wholesale.
 
 **`exercises`** (array):
 - Contains EXACTLY ONE exercise (despite the plural name)
@@ -1577,6 +1606,8 @@ Your response must be a **SINGLE, VALID JSON OBJECT** with NO markdown formattin
 **New Exercise (Exploring Tree Recursion):**
 ```json
 {{
+  "exercise_title": "Sum a Nested List (Recursion)",
+  "exercise_tags": ["Python", "Recursion", "Nested Lists"],
   "exercises": [
     {{
       "filename": "sum_nested_list.py",
@@ -1606,6 +1637,8 @@ Your response must be a **SINGLE, VALID JSON OBJECT** with NO markdown formattin
 **New Exercise (State + Derived Values):**
 ```json
 {{
+  "exercise_title": "Shopping Cart Totals (Derived State)",
+  "exercise_tags": ["React", "State Management", "Derived State"],
   "exercises": [
     {{
       "filename": "ShoppingCart.js",

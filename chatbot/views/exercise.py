@@ -17,12 +17,42 @@ class ExerciseAPIView(APIView):
         """
         Retrieve all exercises by associated message ID.
         """
-        try:
-            exercises = list(Exercise.objects.filter(message=message_id))
-            data = {exercise.id : {"correctness": exercise.correctness, "files": list(exercise.files.all().values())} for exercise in exercises}
-            return Response(data, status=status.HTTP_200_OK)
-        except Exercise.DoesNotExist:
+        exercises = (
+            Exercise.objects
+            .filter(message_id=message_id)
+            .prefetch_related("files")
+        )
+
+        if not exercises.exists():
             return Response({"error": "Exercise not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Return a mapping keyed by exercise_id so the frontend can look up exercises easily.
+        data = {
+            exercise.id: {
+                # Exercise fields
+                "id": exercise.id,
+                "message": exercise.message_id,
+                "correctness": exercise.correctness,
+                "bookmarked": exercise.bookmarked,
+                "title": exercise.title,
+                "tags": exercise.tags,
+                # Related files (use the prefetched objects; avoid `.values()` which would re-query)
+                "files": [
+                    {
+                        "id": f.id,
+                        "filename": f.filename,
+                        "text": f.text,
+                        "code": f.code,
+                        "user_submission": f.user_submission,
+                        "exercise": f.exercise_id,
+                    }
+                    for f in exercise.files.all()
+                ],
+            }
+            for exercise in exercises
+        }
+
+        return Response(data, status=status.HTTP_200_OK)
         
     def post(self, request, message_id):
         """

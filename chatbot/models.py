@@ -74,7 +74,9 @@ class Exercise(models.Model):
     message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='exercises')
     correctness = models.IntegerField(null=True, blank=True, choices=[(0, 'Incorrect'), (1, 'Nearly'), (2, 'Correct')])
     bookmarked = models.BooleanField(default=False)
-    
+    title = models.CharField(max_length=255, null=True)
+    tags = models.JSONField(default=list, null=True)
+
     def __str__(self):
         return f"Exercise {self.filename}"
 
