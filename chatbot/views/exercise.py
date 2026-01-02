@@ -167,8 +167,22 @@ class ExerciseBookmarkAPIView(APIView):
         """
         Get all bookmarked exercises for a user.
         """
-        exercises = list(Exercise.objects.filter(bookmarked=True).values())
-        return Response(exercises, status=status.HTTP_200_OK)
+        exercises = (
+            Exercise.objects
+            .filter(bookmarked=True)
+            .select_related("message__conversation")
+            .values(
+                "id",
+                "message_id",
+                "message__conversation_id",
+                "correctness",
+                "bookmarked",
+                "title",
+                "tags",
+            )
+        )
+
+        return Response(list(exercises), status=status.HTTP_200_OK)
 
 
     def post(self, request, exercise_id):
