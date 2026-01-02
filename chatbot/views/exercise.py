@@ -1,4 +1,5 @@
 import json
+from typing import Any
 from ..models import Exercise, Message
 from ..serializers import ExerciseSubmissionSerializer
 from rest_framework.views import APIView
@@ -163,14 +164,13 @@ class ExerciseBookmarkAPIView(APIView):
     """
     API view to bookmark an exercise.
     """
-    def get(self, request):
+    def get(self, request, user_id):
         """
         Get all bookmarked exercises for a user.
         """
         exercises = (
             Exercise.objects
-            .filter(bookmarked=True)
-            .select_related("message__conversation")
+            .filter(bookmarked=True, message__conversation__user_id=user_id)
             .values(
                 "id",
                 "message_id",

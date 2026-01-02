@@ -34,6 +34,7 @@ class PreferencesSerializer(serializers.ModelSerializer):
             "id",
             "user",
             "theme",
+            "tab_size",
             "accent_color",
             "language",
             "profile_image",
