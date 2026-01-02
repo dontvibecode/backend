@@ -185,7 +185,10 @@ class LLMService:
             config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
         print("Exercise Evaluator response text:", response.text)
-        exercise.correctness = json.loads(response.text, strict=False).get("correctness")
+        response_json = json.loads(response.text, strict=False)
+        exercise.feedback = response_json
+        exercise.save(update_fields=["feedback"])
+        exercise.correctness = response_json.get("correctness")
         print("Updating exercise correctness to:", exercise.correctness)
         exercise.save(update_fields=["correctness"])
         print("Exercise correctness updated.")
