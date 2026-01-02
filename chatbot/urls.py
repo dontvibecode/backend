@@ -22,6 +22,6 @@ urlpatterns = [
     path('exercise/submit/', ExerciseSubmissionAPIView.as_view(), name='submit_exercise'),
     path('exercise/new/<int:message_id>', ExerciseAPIView.as_view(), name='create_exercise'),
     path('exercise/save/', ExerciseSaveAPIView.as_view(), name='save_exercise'),
-    path('exercise/bookmark/<int:user_id>/', ExerciseBookmarkAPIView.as_view(), name='get_bookmarked_exercises_for_user'),
+    path('exercise/bookmark/<str:user_email>/', ExerciseBookmarkAPIView.as_view(), name='get_bookmarked_exercises_for_user'),
     path('exercise/bookmark/<int:exercise_id>', ExerciseBookmarkAPIView.as_view(), name='bookmark_exercise'),
 ]
