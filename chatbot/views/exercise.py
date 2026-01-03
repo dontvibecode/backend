@@ -170,7 +170,7 @@ class ExerciseBookmarkAPIView(APIView):
         """
         exercises = (
             Exercise.objects
-            .filter(bookmarked=True, message__conversation__user_email=user_email)
+            .filter(bookmarked=True, message__conversation__user__email=user_email)
             .values(
                 "id",
                 "message_id",
