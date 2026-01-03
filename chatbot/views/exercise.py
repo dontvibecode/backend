@@ -34,6 +34,7 @@ class ExerciseAPIView(APIView):
                 "id": exercise.id,
                 "message": exercise.message_id,
                 "correctness": exercise.correctness,
+                "feedback": exercise.feedback,
                 "bookmarked": exercise.bookmarked,
                 "title": exercise.title,
                 "tags": exercise.tags,
