@@ -13,6 +13,9 @@ class LLMService:
 
     def __init__(self, conversation_id, user_id):
         self.client = genai.Client()
+        self.grounding_tool = types.Tool(
+            google_search=types.GoogleSearch()
+        )
         self.conversation_id = conversation_id
         self.user_id = user_id
 
@@ -33,7 +36,7 @@ class LLMService:
             from_user=True,
             conversation_id=conversation.id,
             text=user_input,
-            model_used="gemini-2.5-flash-lite",
+            model_used="gemini-3-flash-preview",
         )
 
         raw_history = self.get_conversation_history()
@@ -46,9 +49,9 @@ class LLMService:
 
         prompt = router_prompt.format(user_prompt=user_input, history=history_text)
         response = self.client.models.generate_content(
-            model="gemini-2.5-pro",
+            model="gemini-3-pro-preview",
             contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            config=types.GenerateContentConfig(response_mime_type="application/json", tools=[self.grounding_tool]),
         )
         try:
             response_json = json.loads(response.text, strict=False)
@@ -78,7 +81,7 @@ class LLMService:
             message = Message.objects.create(
                 from_user=False,
                 conversation_id=conversation.id,
-                model_used="gemini-2.5-pro",
+                model_used="gemini-3-pro-preview",
                 json=final_response,
             )
             print("Message creation succeeded.")
@@ -112,7 +115,7 @@ class LLMService:
             message = Message.objects.create(
                 from_user=False,
                 conversation_id=conversation.id,
-                model_used="gemini-2.5-pro",
+                model_used="gemini-3-pro-preview",
                 text=response_json["response_text"],
             )
             return message
@@ -125,9 +128,9 @@ class LLMService:
         )
         print("Instructor Prompt successfully created.")
         response = self.client.models.generate_content(
-            model="gemini-2.5-pro",
+            model="gemini-3-pro-preview",
             contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            config=types.GenerateContentConfig(response_mime_type="application/json", tools=[self.grounding_tool]),
         )
         print("Cleaned response text:", response.text)
         try:
@@ -180,9 +183,9 @@ class LLMService:
         )
         print("Exercise Evaluator Prompt successfully created.")
         response = self.client.models.generate_content(
-            model="gemini-2.5-pro",
+            model="gemini-3-pro-preview",
             contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            config=types.GenerateContentConfig(response_mime_type="application/json", tools=[self.grounding_tool]),
         )
         print("Exercise Evaluator response text:", response.text)
         response_json = json.loads(response.text, strict=False)
@@ -206,9 +209,9 @@ class LLMService:
         )
         print("Exercise Generation Prompt successfully created.")
         response = self.client.models.generate_content(
-            model="gemini-2.5-pro",
+            model="gemini-3-pro-preview",
             contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            config=types.GenerateContentConfig(response_mime_type="application/json", tools=[self.grounding_tool]),
         )
         print("Exercise Generation response text:", response.text)
         try:
