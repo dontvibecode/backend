@@ -1,12 +1,15 @@
+from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+import json
 
 from ..services.conversation import ConversationService
 
 from ..services.llm import LLMService
 from ..serializers import MessageSerializer
+
 
 
 class ChatAPIView(APIView):
@@ -57,3 +60,50 @@ class ChatAPIView(APIView):
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+class ChatStreamAPIView(APIView):
+    """
+    Streaming endpoint that sends thought summaries and progress in real-time.
+    """
+
+    def post(self, request):
+        """
+        Handle POST requests for streaming chat responses.
+        """
+        # Validate input
+        input_serializer = MessageSerializer(data=request.data)
+        if not input_serializer.is_valid():
+            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated_data = input_serializer.validated_data
+
+        # Create LLMService
+        if validated_data["conversation"]:
+            llm_service = LLMService(
+                int(validated_data["conversation"].id),
+                user_id=request.user.id
+            )
+        else:
+            llm_service = LLMService(None, user_id=request.user.id)
+
+        def event_stream():
+            """
+            Generator that yields SSE-formatted events.
+            """
+            try:
+                for event in llm_service.respond_streaming(
+                    user_input=validated_data["text"],
+                    experience_level=validated_data["experience_level"],
+                ):
+                    # SSE format: "data: {json}\n\n"
+                    yield f"data: {json.dumps(event)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'stage': 'error', 'data': str(e)})}\n\n"
+
+        response = StreamingHttpResponse(
+            event_stream(),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'  # Disable nginx buffering
+        return response

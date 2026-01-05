@@ -19,6 +19,175 @@ class LLMService:
         self.conversation_id = conversation_id
         self.user_id = user_id
 
+    def respond_streaming(self, user_input, experience_level):
+        """
+        Generator that yields progress events including thought summaries.
+        
+        Yields:
+            dict with keys:
+                - stage: "routing" | "routing_thought" | "instructor" | "instructor_thought" | "complete" | "error"
+                - data: thought text (for thought stages) or final message data (for complete)
+        """
+        # Setup conversation (same as before)
+        if self.conversation_id is not None:
+            conversation = Conversation.objects.get(id=self.conversation_id)
+        else:
+            try:
+                conversation = Conversation.objects.create(
+                    user_id=self.user_id,
+                    title="New Conversation",
+                )
+                self.conversation_id = conversation.id
+            except Exception as e:
+                yield {"stage": "error", "data": str(e)}
+                return
+
+        # Save user message
+        Message.objects.create(
+            from_user=True,
+            conversation_id=conversation.id,
+            text=user_input,
+            model_used="gemini-3-pro-preview",
+        )
+
+        raw_history = self.get_conversation_history()
+        history_text = "\n".join(
+            [
+                f"{history['role'].upper()}: {history['parts'][0]}"
+                for history in raw_history[:-1]
+            ]
+        )
+
+        # === STAGE 1: Router (with streaming thoughts) ===
+        yield {"stage": "routing", "data": None}
+
+        prompt = router_prompt.format(user_prompt=user_input, history=history_text)
+        
+        router_response_text = ""
+        
+        # Stream the router response
+        for chunk in self.client.models.generate_content_stream(
+            model="gemini-3-pro-preview",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                tools=[self.grounding_tool],
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=True
+                )
+            ),
+        ):
+            # Process each chunk
+            for part in chunk.candidates[0].content.parts:
+                if not part.text:
+                    continue
+                if part.thought:
+                    # This is a thought summary - stream it!
+                    yield {"stage": "routing_thought", "data": part.text}
+                else:
+                    # This is the actual response - accumulate it
+                    router_response_text += part.text
+
+        # Parse router response
+        try:
+            response_json = json.loads(router_response_text, strict=False)
+            use_instructor = response_json.get("redirect", False)
+        except json.JSONDecodeError as e:
+            yield {"stage": "error", "data": f"Router JSON parse error: {str(e)}"}
+            return
+
+        # Update conversation title
+        title = response_json.get("title")
+        if title:
+            conversation.title = title
+            conversation.save(update_fields=["title"])
+
+        if use_instructor:
+            # === STAGE 2: Instructor (with streaming thoughts) ===
+            yield {"stage": "instructor", "data": None}
+
+            instructor_prompt_text = instructor_prompt.format(
+                ability_level=experience_level,
+                user_prompt=user_input,
+                conversation_history=history_text,
+            )
+
+            instructor_response_text = ""
+
+            # Stream the instructor response
+            for chunk in self.client.models.generate_content_stream(
+                model="gemini-3-pro-preview",
+                contents=instructor_prompt_text,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    tools=[self.grounding_tool],
+                    thinking_config=types.ThinkingConfig(
+                        include_thoughts=True
+                    )
+                ),
+            ):
+                for part in chunk.candidates[0].content.parts:
+                    if not part.text:
+                        continue
+                    if part.thought:
+                        # Stream thought summaries to frontend
+                        yield {"stage": "instructor_thought", "data": part.text}
+                    else:
+                        # Accumulate the JSON response
+                        instructor_response_text += part.text
+
+            # Parse instructor response
+            try:
+                final_response = json.loads(instructor_response_text, strict=False)
+            except json.JSONDecodeError as e:
+                yield {"stage": "error", "data": f"Instructor JSON parse error: {str(e)}"}
+                return
+
+            # Create message and exercises (same as before)
+            message = Message.objects.create(
+                from_user=False,
+                conversation_id=conversation.id,
+                model_used="gemini-3-pro-preview",
+                json=final_response,
+            )
+
+            exercise_title = final_response.get("exercise_title")
+            exercise_tags = final_response.get("exercise_tags", [])
+            exercises = final_response.get("exercises", [])
+
+            if exercises:
+                new_exercise = Exercise.objects.create(
+                    message=message,
+                    title=exercise_title,
+                    tags=exercise_tags,
+                )
+                for exercise_file in exercises:
+                    ExerciseFile.objects.create(
+                        exercise=new_exercise,
+                        filename=exercise_file["filename"],
+                        text=exercise_file["text"],
+                        code=exercise_file["code"],
+                    )
+
+            conversation.tags = final_response.get("tags", [])
+            conversation.save(update_fields=["tags"])
+
+            # Import serializer here to avoid circular imports
+            from chatbot.serializers import MessageSerializer
+            yield {"stage": "complete", "data": MessageSerializer(message).data}
+
+        else:
+            # Router handled it directly (no instructor needed)
+            message = Message.objects.create(
+                from_user=False,
+                conversation_id=conversation.id,
+                model_used="gemini-3-pro-preview",
+                text=response_json.get("response_text"),
+            )
+
+            from chatbot.serializers import MessageSerializer
+            yield {"stage": "complete", "data": MessageSerializer(message).data}
+
     def respond(self, user_input, experience_level):
         if self.conversation_id is not None:
             conversation = Conversation.objects.get(id=self.conversation_id)

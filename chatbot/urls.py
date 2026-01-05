@@ -4,19 +4,20 @@ from .views.exercise import ExerciseAPIView, ExerciseBookmarkAPIView, ExerciseSu
 
 from .views.user import UserWithPreferencesAPIView
 from .views.user_preference import PreferencesAPIView
-from .views.chat import ChatAPIView
+from .views.chat import ChatAPIView, ChatStreamAPIView
 from .views.conversation import ConversationAPIView
 
 app_name = 'chatbot'
 
 urlpatterns = [
     path('message/', ChatAPIView.as_view(), name='message'),
-    path('conversations/messages/<int:pk>/', ChatAPIView.as_view(), name='conversation'),
-    path('conversations/<str:email>/', ConversationAPIView.as_view(), name='conversations'),
-    path('conversations/delete/<int:pk>/', ConversationAPIView.as_view(), name='delete conversation'),
-    path('conversations/pin/<int:pk>/', ConversationAPIView.as_view(), name='delete conversation'),
-    path('user/<str:email>/', UserWithPreferencesAPIView.as_view(), name='edit_user'),
-    path('user/', UserWithPreferencesAPIView.as_view(), name='create_user'),
+    path('message/stream/', ChatStreamAPIView.as_view(), name='message_with_streaming_thoughts'),
+    path('conversations/messages/<int:pk>/', ChatAPIView.as_view(), name='get_messages_from_conversation'),
+    path('conversations/<str:email>/', ConversationAPIView.as_view(), name='get_conversations_for_user'),
+    path('conversations/delete/<int:pk>/', ConversationAPIView.as_view(), name='delete_conversation'),
+    path('conversations/pin/<int:pk>/', ConversationAPIView.as_view(), name='pin_conversation'),
+    path('user/<str:email>/', UserWithPreferencesAPIView.as_view(), name='edit_user_with_preferences'),
+    path('user/', UserWithPreferencesAPIView.as_view(), name='create_user_with_preferences'),
     path('user/preferences/<int:pk>/', PreferencesAPIView.as_view(), name='get_preferences_by_user_id'),
     path('exercise/<int:message_id>/', ExerciseAPIView.as_view(), name='get_exercises'),
     path('exercise/submit/', ExerciseSubmissionAPIView.as_view(), name='submit_exercise'),
