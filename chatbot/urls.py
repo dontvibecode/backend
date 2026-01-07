@@ -6,6 +6,7 @@ from .views.user import UserWithPreferencesAPIView
 from .views.user_preference import PreferencesAPIView
 from .views.chat import ChatAPIView, ChatStreamAPIView
 from .views.conversation import ConversationAPIView
+from .views.token import TokenAPIView
 
 app_name = 'chatbot'
 
@@ -25,4 +26,5 @@ urlpatterns = [
     path('exercise/save/', ExerciseSaveAPIView.as_view(), name='save_exercise'),
     path('exercise/bookmark/<str:user_email>/', ExerciseBookmarkAPIView.as_view(), name='get_bookmarked_exercises_for_user'),
     path('exercise/bookmark/<int:exercise_id>', ExerciseBookmarkAPIView.as_view(), name='bookmark_exercise'),
+    path('token/<str:email>/', TokenAPIView.as_view(), name='get_token'),
 ]

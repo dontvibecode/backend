@@ -2,7 +2,7 @@ from google import genai
 from google.genai import types
 import json
 
-from chatbot.models import Conversation, ExerciseFile, Message, Exercise
+from chatbot.models import Conversation, ExerciseFile, Message, Exercise, User
 from chatbot.prompts import router_prompt, instructor_prompt, exercise_evaluator_prompt, exercise_generator_prompt
 
 
@@ -19,7 +19,24 @@ class LLMService:
         self.conversation_id = conversation_id
         self.user_id = user_id
 
-    def respond_streaming(self, user_input, experience_level):
+    def has_enough_tokens(self, user_id, prompt):
+        """
+        Checks if the user has enough tokens to perform the action.
+        """
+        user = User.objects.get(id=user_id)
+        input_token_count = self.client.models.count_tokens(
+            model="gemini-3-pro-preview",
+            contents=prompt,
+        )
+        print("Input token count:", input_token_count.total_tokens)
+        print("User token limit:", user.token_limit)
+        print("User token used:", user.token_used)
+        if input_token_count.total_tokens > user.token_limit - user.token_used:
+            return False
+        return True
+
+
+    def respond_streaming(self, user_id, user_input, experience_level):
         """
         Generator that yields progress events including thought summaries.
         
@@ -64,10 +81,11 @@ class LLMService:
         prompt = router_prompt.format(user_prompt=user_input, history=history_text)
         
         router_response_text = ""
+        final_router_token_count = 0
         
         # Stream the router response
         for chunk in self.client.models.generate_content_stream(
-            model="gemini-3-pro-preview",
+            model="gemini-3-flash-preview",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -77,6 +95,10 @@ class LLMService:
                 )
             ),
         ):
+            if chunk.usage_metadata.total_token_count:
+                print("Current chunk token count:", chunk.usage_metadata.total_token_count)
+                final_router_token_count = chunk.usage_metadata.total_token_count
+
             # Process each chunk
             for part in chunk.candidates[0].content.parts:
                 if not part.text:
@@ -87,6 +109,11 @@ class LLMService:
                 else:
                     # This is the actual response - accumulate it
                     router_response_text += part.text
+
+        user = User.objects.get(id=self.user_id)
+        user.token_used += final_router_token_count
+        user.save(update_fields=["token_used"])
+        print("Total tokens used for router:", final_router_token_count)
 
         # Parse router response
         try:
@@ -113,6 +140,7 @@ class LLMService:
             )
 
             instructor_response_text = ""
+            final_instructor_token_count = 0
 
             # Stream the instructor response
             for chunk in self.client.models.generate_content_stream(
@@ -126,6 +154,10 @@ class LLMService:
                     )
                 ),
             ):
+                if chunk.usage_metadata.total_token_count:
+                    print("Cumulative instructor token count:", chunk.usage_metadata.total_token_count)
+                    final_instructor_token_count = chunk.usage_metadata.total_token_count
+
                 for part in chunk.candidates[0].content.parts:
                     if not part.text:
                         continue
@@ -136,6 +168,11 @@ class LLMService:
                         # Accumulate the JSON response
                         instructor_response_text += part.text
 
+            user = User.objects.get(id=self.user_id)
+            user.token_used += final_instructor_token_count
+            user.save(update_fields=["token_used"])
+            print("Total tokens used for instructor:", final_instructor_token_count)
+            
             # Parse instructor response
             try:
                 final_response = json.loads(instructor_response_text, strict=False)
@@ -218,10 +255,17 @@ class LLMService:
 
         prompt = router_prompt.format(user_prompt=user_input, history=history_text)
         response = self.client.models.generate_content(
-            model="gemini-3-pro-preview",
+            model="gemini-3-flash-preview",
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json", tools=[self.grounding_tool]),
         )
+
+        tokens_used = response.usage_metadata.total_token_count
+        print("Tokens used for router:", tokens_used)
+        user = User.objects.get(id=self.user_id)
+        user.token_used += tokens_used
+        user.save(update_fields=["token_used"])
+
         try:
             response_json = json.loads(response.text, strict=False)
             if response_json["redirect"]:
@@ -301,6 +345,13 @@ class LLMService:
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json", tools=[self.grounding_tool]),
         )
+
+        tokens_used = response.usage_metadata.total_token_count
+        print("Tokens used for instructor:", tokens_used)
+        user = User.objects.get(id=self.user_id)
+        user.token_used += tokens_used
+        user.save(update_fields=["token_used"])
+
         print("Cleaned response text:", response.text)
         try:
             final_response = json.loads(response.text, strict=False)
@@ -350,12 +401,23 @@ class LLMService:
             original_exercise=original_exercise,
             user_submission=user_submission,
         )
+
+        if not self.has_enough_tokens(self.user_id, prompt):
+            return {"warning": "Insufficient tokens"}
+
         print("Exercise Evaluator Prompt successfully created.")
         response = self.client.models.generate_content(
             model="gemini-3-pro-preview",
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json", tools=[self.grounding_tool]),
         )
+
+        tokens_used = response.usage_metadata.total_token_count
+        print("Tokens used for exercise evaluation:", tokens_used)
+        user = User.objects.get(id=self.user_id)
+        user.token_used += tokens_used
+        user.save(update_fields=["token_used"])
+
         print("Exercise Evaluator response text:", response.text)
         response_json = json.loads(response.text, strict=False)
         exercise.feedback = response_json
@@ -377,11 +439,22 @@ class LLMService:
             exercise_files=exercise_files_text,
         )
         print("Exercise Generation Prompt successfully created.")
+        
+        if not self.has_enough_tokens(self.user_id, prompt):
+            return {"warning": "Insufficient tokens"}
+
         response = self.client.models.generate_content(
             model="gemini-3-pro-preview",
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json", tools=[self.grounding_tool]),
         )
+
+        tokens_used = response.usage_metadata.total_token_count
+        print("Tokens used for exercise generation:", tokens_used)
+        user = User.objects.get(id=self.user_id)
+        user.token_used += tokens_used
+        user.save(update_fields=["token_used"])
+
         print("Exercise Generation response text:", response.text)
         try:
             exercise_data = json.loads(response.text, strict=False)
@@ -421,3 +494,11 @@ class LLMService:
         except ExerciseFile.DoesNotExist:
             print("ExerciseFile not found for ID:", exercise_file_id)
             return {"status": "error", "message": "Exercise file not found."}
+
+    def update_token_used(self, user, token_used):
+        """
+        Updates the token used for a given user.
+        """
+        user.token_used += token_used
+        user.save(update_fields=["token_used"])
+        return user.token_used

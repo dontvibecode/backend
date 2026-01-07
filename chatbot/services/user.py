@@ -1,4 +1,7 @@
 from ..models import User, Preferences
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
+
 
 class UserService:
     """
@@ -68,6 +71,29 @@ class UserService:
         except Exception as e:
             print(f"Error fetching preferences for user ID '{user_id}': {e}")
             raise e
+    
+    def get_token_by_user_email(self, email):
+        """
+        Fetches token used and token limit for a given user email.
+        """
+        try:
+            user = User.objects.get(email=email)
+            token_reset_date = user.membership_updated_at + relativedelta(months=1)
+            if token_reset_date < timezone.now():
+                user.token_used = 0
+                user.token_limit = 50000 if user.membership == 'free' else 5000000
+                user.membership_updated_at = timezone.now()
+                user.save()
+            token_used = user.token_used
+            token_limit = user.token_limit
+            return {
+                "token_used": token_used,
+                "token_limit": token_limit
+            }
+        except User.DoesNotExist:
+            return None
+        except Exception as e:
+            print(f"Error fetching token for user email '{email}': {e}")
     
     # def update_user_and_preferences(self, email, user_data):
         """

@@ -73,6 +73,11 @@ class ExerciseAPIView(APIView):
                 for exercise in message.exercises.all()
             ]),
         )
+        if isinstance(response, dict) and response.get("warning") == "Insufficient tokens":
+            return Response(
+                response,
+                status=status.HTTP_402_PAYMENT_REQUIRED
+            )
         return Response(response, status=status.HTTP_201_CREATED)
         
 
@@ -115,6 +120,11 @@ class ExerciseSubmissionAPIView(APIView):
                 exercise_id=validated_data["exercise_id"],
                 user_submission=json.dumps(user_submissions),
             )
+            if isinstance(response, dict) and response.get("warning") == "Insufficient tokens":
+                return Response(
+                    response,
+                    status=status.HTTP_402_PAYMENT_REQUIRED
+                )
         except Exception as e:
             return Response(
                 {"error": f"Failed to mark exercise: {str(e)}"},

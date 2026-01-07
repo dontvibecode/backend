@@ -6,6 +6,10 @@ class User(models.Model):
     username = models.CharField(max_length=150, unique=True)
     method = models.CharField(choices=[('google', 'Google')], default="google")
     email = models.EmailField(unique=True)
+    token_limit = models.IntegerField(default=100000)
+    token_used = models.IntegerField(default=0)
+    membership = models.CharField(choices=[('free', 'Free'), ('pro', 'Pro')], default='free')
+    membership_updated_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"User with id:{self.id}"

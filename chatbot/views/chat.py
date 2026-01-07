@@ -5,11 +5,11 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 import json
 
+from chatbot.prompts import instructor_prompt, router_prompt
 from ..services.conversation import ConversationService
 
 from ..services.llm import LLMService
 from ..serializers import MessageSerializer
-
 
 
 class ChatAPIView(APIView):
@@ -37,7 +37,9 @@ class ChatAPIView(APIView):
 
         validated_data = input_serializer.validated_data
         if validated_data["conversation"]:
-            llm_service = LLMService(int(validated_data["conversation"].id), user_id=request.user.id)
+            llm_service = LLMService(
+                int(validated_data["conversation"].id), user_id=request.user.id
+            )
         else:
             llm_service = LLMService(None, user_id=request.user.id)
 
@@ -61,6 +63,7 @@ class ChatAPIView(APIView):
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
 class ChatStreamAPIView(APIView):
     """
     Streaming endpoint that sends thought summaries and progress in real-time.
@@ -80,11 +83,21 @@ class ChatStreamAPIView(APIView):
         # Create LLMService
         if validated_data["conversation"]:
             llm_service = LLMService(
-                int(validated_data["conversation"].id),
-                user_id=request.user.id
+                int(validated_data["conversation"].id), user_id=request.user.id
             )
         else:
             llm_service = LLMService(None, user_id=request.user.id)
+
+        conversation_history = llm_service.get_conversation_history()
+        combined_prompt_for_token_estimation = (
+            router_prompt.format(user_prompt=validated_data["text"], history=conversation_history) +
+            instructor_prompt.format(ability_level=validated_data["experience_level"], user_prompt=validated_data["text"], conversation_history=conversation_history)
+        )
+        has_enough_tokens = llm_service.has_enough_tokens(
+            user_id=request.user.id, prompt=combined_prompt_for_token_estimation
+        )
+        if not has_enough_tokens:
+            return Response({"warning": "Insufficient tokens"}, status=status.HTTP_402_PAYMENT_REQUIRED)
 
         def event_stream():
             """
@@ -92,6 +105,7 @@ class ChatStreamAPIView(APIView):
             """
             try:
                 for event in llm_service.respond_streaming(
+                    user_id=request.user.id,
                     user_input=validated_data["text"],
                     experience_level=validated_data["experience_level"],
                 ):
@@ -101,9 +115,8 @@ class ChatStreamAPIView(APIView):
                 yield f"data: {json.dumps({'stage': 'error', 'data': str(e)})}\n\n"
 
         response = StreamingHttpResponse(
-            event_stream(),
-            content_type='text/event-stream'
+            event_stream(), content_type="text/event-stream"
         )
-        response['Cache-Control'] = 'no-cache'
-        response['X-Accel-Buffering'] = 'no'  # Disable nginx buffering
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"  # Disable nginx buffering
         return response
