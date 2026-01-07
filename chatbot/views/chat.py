@@ -117,6 +117,7 @@ class ChatStreamAPIView(APIView):
         response = StreamingHttpResponse(
             event_stream(), content_type="text/event-stream"
         )
+        response["Access-Control-Allow-Origin"] = "*"
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"  # Disable nginx buffering
         return response
