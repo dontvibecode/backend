@@ -5,7 +5,6 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 import json
 
-from chatbot.prompts import instructor_prompt, router_prompt
 from ..services.conversation import ConversationService
 
 from ..services.llm import LLMService
@@ -88,13 +87,15 @@ class ChatStreamAPIView(APIView):
         else:
             llm_service = LLMService(None, user_id=request.user.id)
 
+        # Token estimation: history + prepared_context (~500 tokens) for router and instructor
+        # With caching, we only pay for the dynamic parts (not the cached system instructions)
         conversation_history = llm_service.get_conversation_history()
-        combined_prompt_for_token_estimation = (
-            router_prompt.format(user_prompt=validated_data["text"], history=conversation_history) +
-            instructor_prompt.format(ability_level=validated_data["experience_level"], user_prompt=validated_data["text"], conversation_history=conversation_history)
-        )
+        
+        # Estimate tokens for: router (history) + instructor (prepared_context ~500 tokens)
+        # This is a conservative estimate since prepared_context is much smaller than full history
+        estimated_dynamic_content = str(conversation_history) + validated_data["text"] + " " * 500
         has_enough_tokens = llm_service.has_enough_tokens(
-            user_id=request.user.id, prompt=combined_prompt_for_token_estimation
+            user_id=request.user.id, prompt=estimated_dynamic_content
         )
         if not has_enough_tokens:
             return Response({"warning": "Insufficient tokens"}, status=status.HTTP_402_PAYMENT_REQUIRED)
@@ -120,4 +121,5 @@ class ChatStreamAPIView(APIView):
         response["Access-Control-Allow-Origin"] = "*"
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"  # Disable nginx buffering
+        # response["Transfer-Encoding"] = "chunked"  # Add this line
         return response

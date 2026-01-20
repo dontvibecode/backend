@@ -35,7 +35,8 @@ ALLOWED_HOSTS = [
   "localhost",
   "127.0.0.1",
   "dontvibecode-api.onrender.com",
-  'dontvibecode.uc.r.appspot.com'
+  'dontvibecode.uc.r.appspot.com',
+  ".run.app",
 ]
 
 # Application definition

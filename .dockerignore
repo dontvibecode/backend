@@ -1,0 +1,10 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+.env
+*.sqlite3
+cloud-sql-proxy.exe
+.gcloudignore
+app.yaml

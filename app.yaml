@@ -1,6 +1,6 @@
 runtime: python313
 
-entrypoint: gunicorn -b :$PORT -t 120 api.wsgi
+entrypoint: gunicorn -b :$PORT -t 120 --worker-class gevent --worker-connections 1000 api.wsgi
 
 env_variables:
   # This setting is used in settings.py to configure your ALLOWED_HOSTS
