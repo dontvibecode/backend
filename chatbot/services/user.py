@@ -78,6 +78,7 @@ class UserService:
         """
         try:
             user = User.objects.get(email=email)
+            print(f"User: {user.__dict__}")
             token_reset_date = user.membership_updated_at + relativedelta(months=1)
             if token_reset_date < timezone.now():
                 user.token_used = 0
@@ -95,7 +96,7 @@ class UserService:
         except Exception as e:
             print(f"Error fetching token for user email '{email}': {e}")
     
-    # def update_user_and_preferences(self, email, user_data):
+    def update_user_and_preferences(self, email, user_data):
         """
         Updates an existing User and Preferences instance with new data.
         Expects user_data to be a dict containing user fields and a nested 'preferences' dict.

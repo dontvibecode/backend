@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 cloud-sql-proxy.exe
+env.yaml
