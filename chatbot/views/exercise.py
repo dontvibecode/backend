@@ -216,3 +216,28 @@ class ExerciseBookmarkAPIView(APIView):
                 {"error": f"Failed to update bookmark status: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class ExerciseAggregateAPIView(APIView):
+    """
+    API view to get aggregated exercises for a conversation.
+    """
+    def get(self, request, conversation_id):
+        """
+        Get aggregated exercises for a conversation.
+        """
+        try:
+            exercises = Exercise.objects.filter(message__conversation_id=conversation_id)
+            exercises_count = exercises.count()
+            exercises_almost_count = exercises.filter(correctness=1).count()
+            exercises_correct_count = exercises.filter(correctness=2).count()
+            return Response({
+                "exercises_count": exercises_count,
+                "exercises_almost_count": exercises_almost_count,
+                "exercises_correct_count": exercises_correct_count
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to get aggregated exercises: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
