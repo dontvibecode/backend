@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.db.models import Count, Q
 
 from chatbot.models import Conversation
 
@@ -13,9 +14,11 @@ class ConversationAPIView(APIView):
     """
 
     def get(self, request, email):
-        conversations = Conversation.objects.filter(user__email=email).order_by(
-            "-created_at"
-        )
+        conversations = Conversation.objects.filter(user__email=email).annotate(
+            exercises_count=Count('message__exercises'),
+            exercises_almost_count=Count('message__exercises', filter=Q(message__exercises__correctness=1)),
+            exercises_correct_count=Count('message__exercises', filter=Q(message__exercises__correctness=2)),
+        ).order_by("-created_at")
         output_serializer = ConversationSerializer(conversations, many=True)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
     

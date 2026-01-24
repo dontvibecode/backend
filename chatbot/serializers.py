@@ -16,9 +16,14 @@ class MessageSerializer(serializers.ModelSerializer):
 
 
 class ConversationSerializer(serializers.ModelSerializer):
+    exercises_count = serializers.IntegerField(read_only=True, default=0)
+    exercises_almost_count = serializers.IntegerField(read_only=True, default=0)
+    exercises_correct_count = serializers.IntegerField(read_only=True, default=0)
+
     class Meta:
         model = Conversation
-        fields = ["id", "user", "title", "last_active", "pinned", "created_at", "tags"]
+        fields = ["id", "user", "title", "last_active", "pinned", "created_at", "tags", 
+                  "exercises_count", "exercises_almost_count", "exercises_correct_count"]
         read_only_fields = ["id", "created_at"]
 
 class UserSerializer(serializers.ModelSerializer):
