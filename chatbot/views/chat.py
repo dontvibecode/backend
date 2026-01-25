@@ -15,7 +15,6 @@ class ChatAPIView(APIView):
     """
     API endpoint for the chat interface.
     """
-
     def get(self, request, pk):
         try:
             messages = ConversationService.get_messages_from_conversation(

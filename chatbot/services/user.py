@@ -6,7 +6,7 @@ from django.utils import timezone
 class UserService:
     """
     Houses all business logic related to User and Preferences models.
-    """        
+    """
 
     def get_user_by_email_with_preferences(self, email):
         """

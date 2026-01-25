@@ -1,5 +1,6 @@
 from google import genai
 from google.genai import types
+from django.utils import timezone
 import json
 
 from chatbot.models import Conversation, ExerciseFile, Message, Exercise, User
@@ -126,27 +127,27 @@ class LLMService:
         
         contents = f"""=== LEARNING CONTEXT (from Router AI) ===
 
-LEARNING SUMMARY:
-{learning_summary}
+            LEARNING SUMMARY:
+            {learning_summary}
 
-USER LEVEL NOTES:
-{user_level_notes}
+            USER LEVEL NOTES:
+            {user_level_notes}
 
-"""
+        """
         
         if critical_verbatim:
             contents += f"""CRITICAL VERBATIM (exact text from user):
-{critical_verbatim}
+            {critical_verbatim}
 
-"""
-        
-        contents += f"""=== CURRENT REQUEST ===
+            """
+                
+            contents += f"""=== CURRENT REQUEST ===
 
-ABILITY LEVEL: {experience_level}
+            ABILITY LEVEL: {experience_level}
 
-USER'S MESSAGE:
-{user_input}
-"""
+            USER'S MESSAGE:
+            {user_input}
+        """
         
         return contents
 
@@ -155,6 +156,12 @@ USER'S MESSAGE:
         Checks if the user has enough tokens to perform the action.
         """
         user = User.objects.get(id=user_id)
+        if user.membership == 'pro' and user.membership_expires_at >= timezone.now():
+            user.membership = 'free'
+            user.membership_expires_at = None
+            user.token_used = 0
+            user.token_limit = 200000
+            user.save()
         input_token_count = self.client.models.count_tokens(
             model="gemini-3-pro-preview",
             contents=prompt,
@@ -292,9 +299,9 @@ USER'S MESSAGE:
                 print("Warning: No prepared_context from router, using basic context")
                 instructor_contents = f"""ABILITY LEVEL: {experience_level}
 
-USER'S MESSAGE:
-{user_input}
-"""
+                    USER'S MESSAGE:
+                    {user_input}
+                """
 
             instructor_response_text = ""
             final_instructor_token_count = 0

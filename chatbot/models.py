@@ -9,6 +9,7 @@ class User(models.Model):
     token_limit = models.IntegerField(default=100000)
     token_used = models.IntegerField(default=0)
     membership = models.CharField(choices=[('free', 'Free'), ('pro', 'Pro')], default='free')
+    membership_expires_at = models.DateTimeField(null=True, blank=True)
     membership_updated_at = models.DateTimeField(blank=True, default=timezone.now)
 
     def __str__(self):
