@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Conversation, Message, Preferences, User
+from .models import Conversation, Message, Preferences, TokenUsage, User
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -94,3 +94,9 @@ class ExerciseSubmissionSerializer(serializers.Serializer):
     exercise_file_ids = serializers.ListField(child=serializers.IntegerField(), required=True)
     user_submissions = serializers.ListField(child=serializers.CharField(), required=True)
     
+
+class TokenUsageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TokenUsage
+        fields = ["id", "user", "token_used", "timestamp", "tokens_remaining", "action"]
+        read_only_fields = ["id", "user", "timestamp"]

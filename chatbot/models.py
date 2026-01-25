@@ -15,6 +15,13 @@ class User(models.Model):
     def __str__(self):
         return f"User with id:{self.id}"
 
+class TokenUsage(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    token_used = models.IntegerField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    tokens_remaining = models.IntegerField()
+    action = models.CharField(choices=[('router', 'Message'), ('instructor', 'Message with lesson generated'), ('exercise_evaluator', 'Exercise marking'), ('exercise_generator', 'Exercise Generation')], max_length=20)
+
 class Preferences(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='preferences')
     theme = models.CharField(

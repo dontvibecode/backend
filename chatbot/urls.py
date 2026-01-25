@@ -2,7 +2,7 @@ from django.urls import path
 
 from .views.exercise import ExerciseAPIView, ExerciseAggregateAPIView, ExerciseBookmarkAPIView, ExerciseSubmissionAPIView, ExerciseSaveAPIView
 
-from .views.user import UserWithPreferencesAPIView
+from .views.user import UserMembershipAPIView, UserWithPreferencesAPIView
 from .views.user_preference import PreferencesAPIView
 from .views.chat import ChatAPIView, ChatStreamAPIView
 from .views.conversation import ConversationAPIView
@@ -20,6 +20,7 @@ urlpatterns = [
     path('user/<str:email>/', UserWithPreferencesAPIView.as_view(), name='edit_user_with_preferences'),
     path('user/', UserWithPreferencesAPIView.as_view(), name='create_user_with_preferences'),
     path('user/preferences/<int:pk>/', PreferencesAPIView.as_view(), name='get_preferences_by_user_id'),
+    path('user/membership/<str:email>/', UserMembershipAPIView.as_view(), name='get_user_membership'),
     path('exercise/<int:message_id>/', ExerciseAPIView.as_view(), name='get_exercises'),
     path('exercise/submit/', ExerciseSubmissionAPIView.as_view(), name='submit_exercise'),
     path('exercise/new/<int:message_id>', ExerciseAPIView.as_view(), name='create_exercise'),
@@ -28,4 +29,5 @@ urlpatterns = [
     path('exercise/bookmark/<int:exercise_id>', ExerciseBookmarkAPIView.as_view(), name='bookmark_exercise'),
     path('exercise/aggregate/<int:conversation_id>', ExerciseAggregateAPIView.as_view(), name='get_exercises_completion_status_for_conversation'),
     path('token/<str:email>/', TokenAPIView.as_view(), name='get_token'),
+    path('token/usage/<str:email>/', TokenUsageAPIView.as_view(), name='get_token_usage_for_user'),
 ]

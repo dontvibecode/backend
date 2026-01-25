@@ -3,7 +3,7 @@ from google.genai import types
 from django.utils import timezone
 import json
 
-from chatbot.models import Conversation, ExerciseFile, Message, Exercise, User
+from chatbot.models import Conversation, ExerciseFile, Message, Exercise, TokenUsage, User
 from chatbot.prompts import (
     router_system_instruction,
     instructor_system_instruction,
@@ -395,6 +395,13 @@ class LLMService:
             conversation.tags = final_response.get("tags", [])
             conversation.save(update_fields=["tags"])
 
+            TokenUsage.objects.create(
+                user=user,
+                token_used=final_router_token_count + final_instructor_token_count,
+                tokens_remaining=user.token_limit - user.token_used,
+                action='instructor',
+            )
+
             # Import serializer here to avoid circular imports
             from chatbot.serializers import MessageSerializer
             yield {"stage": "complete", "data": MessageSerializer(message).data}
@@ -406,6 +413,13 @@ class LLMService:
                 conversation_id=conversation.id,
                 model_used="gemini-3-pro-preview",
                 text=response_json.get("response_text"),
+            )
+
+            TokenUsage.objects.create(
+                user=user,
+                token_used=final_router_token_count,
+                tokens_remaining=user.token_limit - user.token_used,
+                action='router',
             )
 
             from chatbot.serializers import MessageSerializer
@@ -664,6 +678,13 @@ USER'S MESSAGE:
         user.token_used += tokens_used
         user.save(update_fields=["token_used"])
 
+        TokenUsage.objects.create(
+            user=user,
+            token_used=tokens_used,
+            tokens_remaining=user.token_limit - user.token_used,
+            action='exercise_evaluator',
+        )
+
         print("Exercise Evaluator response text:", response.text)
         response_json = json.loads(response.text, strict=False)
         exercise.feedback = response_json
@@ -702,6 +723,13 @@ USER'S MESSAGE:
         user = User.objects.get(id=self.user_id)
         user.token_used += tokens_used
         user.save(update_fields=["token_used"])
+
+        TokenUsage.objects.create(
+            user=user,
+            token_used=tokens_used,
+            tokens_remaining=user.token_limit - user.token_used,
+            action='exercise_generator',
+        )
 
         print("Exercise Generation response text:", response.text)
         try:

@@ -1,4 +1,4 @@
-from ..models import User, Preferences
+from ..models import TokenUsage, User, Preferences
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
@@ -121,3 +121,15 @@ class UserService:
             preferences.save()
 
         return user
+
+    def get_token_usage_by_user_email(self, email):
+        """
+        Fetches token usage for a given user email.
+        """
+        try:
+            user = User.objects.get(email=email)
+            return TokenUsage.objects.filter(user=user).order_by('-timestamp')
+        except User.DoesNotExist:
+            return None
+        except Exception as e:
+            print(f"Error fetching token usage for user email '{email}': {e}")
