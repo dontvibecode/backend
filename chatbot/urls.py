@@ -7,6 +7,7 @@ from .views.user_preference import PreferencesAPIView
 from .views.chat import ChatAPIView, ChatStreamAPIView
 from .views.conversation import ConversationAPIView
 from .views.token import TokenAPIView, TokenUsageAPIView
+from .views.upload import ProfileImageConfirmView, ProfileImageUploadURLView
 
 app_name = 'chatbot'
 
@@ -30,4 +31,6 @@ urlpatterns = [
     path('exercise/aggregate/<int:conversation_id>', ExerciseAggregateAPIView.as_view(), name='get_exercises_completion_status_for_conversation'),
     path('token/<str:email>/', TokenAPIView.as_view(), name='get_token'),
     path('token/usage/<str:email>/', TokenUsageAPIView.as_view(), name='get_token_usage_for_user'),
+    path('upload/profile-image-url/', ProfileImageUploadURLView.as_view(), name='profile-image-url'),
+    path('upload/profile-image-confirm/', ProfileImageConfirmView.as_view(), name='profile-image-confirm'),
 ]

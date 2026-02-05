@@ -17,7 +17,8 @@ dependencies = [
     "gunicorn (>=23.0.0,<24.0.0)",
     "djangorestframework-simplejwt (>=5.5.1,<6.0.0)",
     "google-auth (>=2.43.0,<3.0.0)",
-    "python-dateutil (>=2.9.0.post0,<3.0.0)"
+    "python-dateutil (>=2.9.0.post0,<3.0.0)",
+    "google-cloud-storage (>=3.9.0,<4.0.0)"
 ]
 
 
