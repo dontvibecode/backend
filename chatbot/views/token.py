@@ -1,4 +1,4 @@
-from backend.chatbot.serializers import TokenUsageSerializer
+from chatbot.serializers import TokenUsageSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status

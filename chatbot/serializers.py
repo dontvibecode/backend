@@ -11,7 +11,7 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Message
-        fields = ["id", "created_at", "from_user", "conversation", "model_used", "text", "json", "experience_level"]
+        fields = ["id", "created_at", "from_user", "conversation", "model_used", "text", "json", "experience_level", "thought"]
         read_only_fields = ["id", "created_at"]
 
 

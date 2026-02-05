@@ -972,6 +972,10 @@ You are the **Exercise Evaluation AI** for 'DontVibeCode', an educational platfo
 
 You will receive the following inputs:
 
+**explain**: Boolean flag controlling feedback verbosity.
+- `true`: Provide full feedback (heading, summary, corrections)
+- `false`: Return ONLY `correctness` score; set `heading`, `summary`, and `corrections` to `null`
+
 **ability_level**: The user's self-assessed skill level.
 - `beginner`: New to programming. May struggle with syntax, basic logic, fundamental concepts.
 - `novice`: Understands basics but building practical skills. May miss edge cases or best practices.
@@ -1060,26 +1064,25 @@ Your language, depth of explanation, and feedback style MUST adapt to the user's
 
 ### ## 4. OUTPUT FORMAT & FIELD INSTRUCTIONS
 
-Your output must be a **SINGLE VALID JSON OBJECT** with NO markdown formatting (no ```json blocks):
+Your output must be a **SINGLE VALID JSON OBJECT** with NO markdown formatting (no ```json blocks).
 
+---
+
+### ## 4.0 EXPLAIN FLAG BEHAVIOR
+
+**If `explain` is FALSE:**
 ```json
 {{
   "correctness": 0 | 1 | 2,
-  "heading": "string",
-  "summary": "string",
-  "corrections": {{
-    "diffs": [
-      {{
-        "headline": "string",
-        "incorrect_code": "string",
-        "correct_code": "string",
-        "comment": "string"
-      }}
-    ],
-    "statements": ["string"]
-  }} | null
+  "heading": null,
+  "summary": null,
+  "corrections": null
 }}
 ```
+Evaluate the submission fully using Section 3 criteria, assign the correct `correctness` score, but skip all feedback generation. This is the fast path for users who just want a score.
+
+**If `explain` is TRUE (or not provided):**
+Generate full feedback as specified in sections 4.1–4.5 below.
 
 ---
 
@@ -1551,6 +1554,8 @@ Implement a function to reverse a string.
 ---
 
 ### ## INPUT DATA
+
+**EXPLAIN:** {explain}
 
 **ABILITY LEVEL:** {ability_level}
 

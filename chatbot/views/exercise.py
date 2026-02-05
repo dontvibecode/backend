@@ -63,8 +63,12 @@ class ExerciseAPIView(APIView):
         try:
             message = Message.objects.get(id=message_id)
         except Message.DoesNotExist:
-            return Response({"error": "Message not found."}, status=status.HTTP_404_NOT_FOUND)        
+            return Response({"error": "Message not found."}, status=status.HTTP_404_NOT_FOUND)
         llm_service = LLMService(None, request.user.id)
+
+        if llm_service.exercise_count_limit_reached(request.user.id, message_id):
+            return Response({"warning": "Exercise count limit reached."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
         response = llm_service.generate_exercise(
             ability_level=request.data.get("ability_level", "beginner"),
             message=message,

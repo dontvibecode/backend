@@ -40,6 +40,9 @@ class ChatAPIView(APIView):
             )
         else:
             llm_service = LLMService(None, user_id=request.user.id)
+        
+        if ConversationService.conversation_message_count_limit(user_id=request.user.id, conversation_id=validated_data["conversation"].id):
+            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         try:
             print("Validated data:", validated_data)
@@ -77,6 +80,9 @@ class ChatStreamAPIView(APIView):
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         validated_data = input_serializer.validated_data
+
+        if ConversationService.conversation_message_count_limit(user_id=request.user.id, conversation_id=validated_data["conversation"].id):
+            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         # Create LLMService
         if validated_data["conversation"]:

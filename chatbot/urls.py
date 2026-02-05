@@ -6,7 +6,7 @@ from .views.user import UserMembershipAPIView, UserWithPreferencesAPIView
 from .views.user_preference import PreferencesAPIView
 from .views.chat import ChatAPIView, ChatStreamAPIView
 from .views.conversation import ConversationAPIView
-from .views.token import TokenAPIView
+from .views.token import TokenAPIView, TokenUsageAPIView
 
 app_name = 'chatbot'
 
