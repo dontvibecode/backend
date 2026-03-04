@@ -81,9 +81,6 @@ class ChatStreamAPIView(APIView):
 
         validated_data = input_serializer.validated_data
 
-        if ConversationService.conversation_message_count_limit(user_id=request.user.id, conversation_id=validated_data["conversation"].id):
-            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
         # Create LLMService
         if validated_data["conversation"]:
             llm_service = LLMService(
@@ -91,6 +88,9 @@ class ChatStreamAPIView(APIView):
             )
         else:
             llm_service = LLMService(None, user_id=request.user.id)
+
+        if ConversationService.conversation_message_count_limit(user_id=request.user.id, conversation_id=validated_data["conversation"].id):
+            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         # Token estimation: history + prepared_context (~500 tokens) for router and instructor
         # With caching, we only pay for the dynamic parts (not the cached system instructions)
