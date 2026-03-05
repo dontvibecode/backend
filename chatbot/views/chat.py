@@ -34,15 +34,16 @@ class ChatAPIView(APIView):
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         validated_data = input_serializer.validated_data
-        if validated_data["conversation"]:
-            llm_service = LLMService(
-                int(validated_data["conversation"].id), user_id=request.user.id
-            )
+        conversation = validated_data["conversation"]
+        if conversation and ConversationService.conversation_message_count_limit(
+            user_id=request.user.id, conversation_id=conversation.id
+        ):
+            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        if conversation:
+            llm_service = LLMService(int(conversation.id), user_id=request.user.id)
         else:
             llm_service = LLMService(None, user_id=request.user.id)
-        
-        if ConversationService.conversation_message_count_limit(user_id=request.user.id, conversation_id=validated_data["conversation"].id):
-            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         try:
             print("Validated data:", validated_data)
@@ -80,17 +81,16 @@ class ChatStreamAPIView(APIView):
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         validated_data = input_serializer.validated_data
+        conversation = validated_data["conversation"]
+        if conversation and ConversationService.conversation_message_count_limit(
+            user_id=request.user.id, conversation_id=conversation.id
+        ):
+            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
-        # Create LLMService
-        if validated_data["conversation"]:
-            llm_service = LLMService(
-                int(validated_data["conversation"].id), user_id=request.user.id
-            )
+        if conversation:
+            llm_service = LLMService(int(conversation.id), user_id=request.user.id)
         else:
             llm_service = LLMService(None, user_id=request.user.id)
-
-        if ConversationService.conversation_message_count_limit(user_id=request.user.id, conversation_id=validated_data["conversation"].id):
-            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         # Token estimation: history + prepared_context (~500 tokens) for router and instructor
         # With caching, we only pay for the dynamic parts (not the cached system instructions)
