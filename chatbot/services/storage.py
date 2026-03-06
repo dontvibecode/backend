@@ -5,6 +5,10 @@ import uuid
 from datetime import timedelta
 from api.settings import BUCKET_NAME
 
+
+IAM_SIGNING_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+
+
 class GCSService:
     """Service for generating signed URLs for GCP Cloud Storage uploads."""
     
@@ -28,11 +32,19 @@ class GCSService:
         if isinstance(self.credentials, service_account.Credentials):
             return {}
 
-        auth_request = Request()
-        self.credentials.refresh(auth_request)
+        scoped_credentials = (
+            self.credentials.with_scopes(IAM_SIGNING_SCOPES)
+            if getattr(self.credentials, "requires_scopes", False)
+            else self.credentials
+        )
 
-        service_account_email = getattr(self.credentials, "service_account_email", None)
-        access_token = getattr(self.credentials, "token", None)
+        auth_request = Request()
+        scoped_credentials.refresh(auth_request)
+
+        service_account_email = getattr(
+            scoped_credentials, "service_account_email", None
+        )
+        access_token = getattr(scoped_credentials, "token", None)
 
         if not service_account_email or not access_token:
             raise RuntimeError(
