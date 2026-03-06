@@ -1,3 +1,4 @@
+import google.auth
 from google.cloud import storage
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
@@ -18,6 +19,7 @@ class GCSService:
     def __init__(self):
         self.client = storage.Client()
         self.credentials = self.client._credentials
+        self.signing_credentials, _ = google.auth.default(scopes=IAM_SIGNING_SCOPES)
         self.bucket = self.client.bucket(BUCKET_NAME)
 
     def _get_signed_url_kwargs(self) -> dict:
@@ -32,19 +34,13 @@ class GCSService:
         if isinstance(self.credentials, service_account.Credentials):
             return {}
 
-        scoped_credentials = (
-            self.credentials.with_scopes(IAM_SIGNING_SCOPES)
-            if getattr(self.credentials, "requires_scopes", False)
-            else self.credentials
-        )
-
         auth_request = Request()
-        scoped_credentials.refresh(auth_request)
+        self.signing_credentials.refresh(auth_request)
 
         service_account_email = getattr(
-            scoped_credentials, "service_account_email", None
+            self.signing_credentials, "service_account_email", None
         )
-        access_token = getattr(scoped_credentials, "token", None)
+        access_token = getattr(self.signing_credentials, "token", None)
 
         if not service_account_email or not access_token:
             raise RuntimeError(
