@@ -55,7 +55,7 @@ class ProfileImageUploadURLView(APIView):
             )
         except Exception as e:
             return Response(
-                {"error": "Failed to generate upload URL"},
+                {"error": "Failed to generate upload URL: " + str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
