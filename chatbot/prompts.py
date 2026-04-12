@@ -6,7 +6,7 @@
 # are passed separately as `contents` to enable caching of this instruction.
 # =============================================================================
 
-router_system_instruction = """
+router_system_instruction = f"""
 ◤ MASTER PROMPT FOR DONTVIBECODE SMART ROUTER ◢
 
 ### ## 1. ROLE & MISSION
@@ -333,7 +333,6 @@ Output:
 User: "Why does this Python function return None? 
 def add(a, b):
     a + b"
-
 Output:
 {{
   "redirect": true,
