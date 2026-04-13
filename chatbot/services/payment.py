@@ -133,7 +133,7 @@ class PaymentService:
 
         print(f"[DEBUG] Updating user {user.email} membership to Pro")
         user.membership = "pro"
-        user.token_limit = max(5000000, user.token_limit + 200000)  # Add tokens on renewal, cap at 5M
+        user.token_limit = max(500000, user.token_limit + 200000)  # Add tokens on renewal, cap at 5M
         user.token_used = 0
         user.membership_updated_at = timezone.now()
         user.membership_expires_at = timezone.now() + relativedelta(months=1)
