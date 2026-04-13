@@ -1,3 +1,5 @@
+import json
+
 import stripe
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
@@ -117,44 +119,56 @@ class PaymentService:
         Handles the invoice.payment_succeeded event.
         Called for both the first subscription payment and renewals.
         """
+        print("[DEBUG] Handling invoice.payment_succeeded event")
         if not invoice.get("subscription"):
+            print("[DEBUG] Invoice does not have a subscription ID, skipping")
             return
 
         try:
             user = User.objects.get(stripe_customer_id=invoice["customer"])
+            print(f"[DEBUG] Found user {user.email} for customer ID {invoice['customer']}")
         except User.DoesNotExist:
             return
 
+        print(f"[DEBUG] Updating user {user.email} membership to Pro")
         user.membership = "pro"
         user.token_limit = min(5000000, user.token_limit + 200000)  # Add tokens on renewal, cap at 5M
         user.token_used = 0
         user.membership_updated_at = timezone.now()
         user.membership_expires_at = timezone.now() + relativedelta(months=1)
         user.save()
+        print(f"[DEBUG]: Succeeded")
 
     def handle_payment_intent_succeeded(self, payment_intent):
         """
         Handles the payment_intent.succeeded event for one-time payments.
         Adds purchased tokens to the user's balance.
         """
+        print(f"[DEBUG]: handle_payment_intent_succeeded invoked")
         metadata = payment_intent.get("metadata", {})
+        print(f"[DEBUG]: metadata: {json.dumps(metadata)}")
         if metadata.get("type") != "token_purchase":
+            print(f"[DEBUG]: metadata type is not token_purchase, skipping")
             return
 
         try:
             user = User.objects.get(stripe_customer_id=payment_intent["customer"])
+            print(f"[DEBUG] Found user {user.email} for customer ID {payment_intent['customer']}")
         except User.DoesNotExist:
             return
 
+        print(f"[DEBUG] Adding tokens to user {user.email}")
         token_amount = int(metadata.get("token_amount", 0))
         user.token_limit += token_amount
         user.save()
+        print(f"[DEBUG]: Added {token_amount} tokens to user {user.email}")
 
     def handle_subscription_deleted(self, subscription):
         """
         Handles the customer.subscription.deleted event.
         Downgrades user back to free tier.
         """
+        print(f"[DEBUG]: handle_subscription_deleted invoked")
         try:
             user = User.objects.get(stripe_customer_id=subscription["customer"])
             user.membership = "free"
@@ -163,5 +177,7 @@ class PaymentService:
             user.membership_updated_at = timezone.now()
             user.membership_expires_at = None
             user.save()
+            print(f"[DEBUG]: user {user.email} downgraded to free tier")
         except User.DoesNotExist:
+            print(f"[DEBUG]: User not found for customer ID {subscription['customer']}")
             pass

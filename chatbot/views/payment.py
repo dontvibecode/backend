@@ -1,3 +1,5 @@
+import json
+
 import stripe
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -130,6 +132,8 @@ class StripeWebhookView(APIView):
         payload = request.body
         sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
 
+        print(f"[DEBUG]: event type {json.dumps(payload)}")
+
         try:
             event = self.service.verify_webhook(payload, sig_header)
         except ValueError:
@@ -145,6 +149,7 @@ class StripeWebhookView(APIView):
 
         event_type = event["type"]
         data = event["data"]["object"]
+        print(f"[DEBUG]: event: {json.dumps(event)}")
 
         if event_type == "invoice.payment_succeeded":
             self.service.handle_invoice_paid(data)
@@ -153,4 +158,5 @@ class StripeWebhookView(APIView):
         elif event_type == "customer.subscription.deleted":
             self.service.handle_subscription_deleted(data)
 
+        print(f"[DEBUG]: Finished processing event {event_type} with status: success.")
         return Response({"status": "success"}, status=status.HTTP_200_OK)
