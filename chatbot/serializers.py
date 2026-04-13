@@ -58,7 +58,7 @@ class UserWithPreferencesSerializer(UserSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "preferences"]
+        fields = ["id", "username", "email", "preferences", "membership"]
         read_only_fields = ["id", "preferences"]
     
     def update(self, instance, validated_data):
