@@ -17,7 +17,6 @@ class PaymentService:
     """
 
     def __init__(self):
-        print(f"[DEBUG] STRIPE_SECRET_KEY = {repr(STRIPE_SECRET_KEY)}")
         stripe.api_key = STRIPE_SECRET_KEY
 
     def get_or_create_stripe_customer(self, user):
@@ -120,7 +119,9 @@ class PaymentService:
         Called for both the first subscription payment and renewals.
         """
         print("[DEBUG] Handling invoice.payment_succeeded event")
-        if not invoice.get("subscription"):
+        parent = invoice.get("parent", {})
+        subscription_details = parent.get("subscription_details", {})
+        if not subscription_details.get("subscription"):
             print("[DEBUG] Invoice does not have a subscription ID, skipping")
             return
 
