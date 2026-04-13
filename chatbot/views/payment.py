@@ -132,7 +132,7 @@ class StripeWebhookView(APIView):
         payload = request.body
         sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
 
-        print(f"[DEBUG]: event type {json.dumps(payload)}")
+        print(f"[DEBUG]: event type {payload.decode('utf-8')}")
 
         try:
             event = self.service.verify_webhook(payload, sig_header)
@@ -149,7 +149,7 @@ class StripeWebhookView(APIView):
 
         event_type = event["type"]
         data = event["data"]["object"]
-        print(f"[DEBUG]: event: {json.dumps(event)}")
+        print(f"[DEBUG]: event: {event}")
 
         if event_type == "invoice.payment_succeeded":
             self.service.handle_invoice_paid(data)
