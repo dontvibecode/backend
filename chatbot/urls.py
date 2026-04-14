@@ -8,7 +8,7 @@ from .views.chat import ChatAPIView, ChatStreamAPIView
 from .views.conversation import ConversationAPIView
 from .views.token import TokenAPIView, TokenUsageAPIView
 from .views.upload import ProfileImageConfirmView, ProfileImageUploadURLView
-from .views.payment import SubscribeView, BuyTokensView, CancelSubscriptionView, StripeWebhookView
+from .views.payment import ResumeSubscriptionView, SubscribeView, BuyTokensView, CancelSubscriptionView, StripeWebhookView
 
 app_name = 'chatbot'
 
