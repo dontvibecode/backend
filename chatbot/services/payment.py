@@ -20,7 +20,7 @@ class PaymentService:
         stripe.api_key = STRIPE_SECRET_KEY
 
     def get_or_create_stripe_customer(self, user):
-        """we
+        """
         Ensures user has a Stripe customer ID. Creates one if missing.
         """
         if user.stripe_customer_id:
@@ -89,6 +89,13 @@ class PaymentService:
         They keep Pro access until the current billing period ends.
         Returns the period end date or raises ValueError if no subscription found.
         """
+        user = User.objects.get(email=user.email)
+        if not user:
+            raise ValueError("User not found")
+
+        user.subscription_active = False
+        user.save()
+
         if not user.stripe_customer_id:
             raise ValueError("No subscription found")
 
@@ -137,6 +144,7 @@ class PaymentService:
         user.token_used = 0
         user.membership_updated_at = timezone.now()
         user.membership_expires_at = timezone.now() + relativedelta(months=1)
+        user.subscription_active = True
         user.save()
         print(f"[DEBUG]: Succeeded")
 
@@ -177,6 +185,7 @@ class PaymentService:
             user.token_used = 0
             user.membership_updated_at = timezone.now()
             user.membership_expires_at = None
+            user.subscription_active = None
             user.save()
             print(f"[DEBUG]: user {user.email} downgraded to free tier")
         except User.DoesNotExist:

@@ -13,6 +13,7 @@ class User(models.Model):
         choices=[("free", "Free"), ("pro", "Pro")], default="free"
     )
     membership_expires_at = models.DateTimeField(null=True, blank=True)
+    subscription_active = models.BooleanField(null=True, default=None)
     membership_updated_at = models.DateTimeField(blank=True, default=timezone.now)
     stripe_customer_id = models.CharField(max_length=100, null=True, blank=True)
     free_feedback_for_exercises_refresh_at = models.DateTimeField(null=True, blank=True)
