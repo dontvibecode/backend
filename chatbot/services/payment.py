@@ -110,6 +110,32 @@ class PaymentService:
         sub = subscriptions.data[0]
         stripe.Subscription.modify(sub.id, cancel_at_period_end=True)
         return user.membership_expires_at
+    
+    def resume_subscription(self, user):
+        """
+        Resumes a canceled subscription if still within the current billing period.
+        """
+        user = User.objects.get(email=user.email)
+
+        if not user.stripe_customer_id:
+            raise ValueError("No subscription found")
+
+        subscriptions = stripe.Subscription.list(
+            customer=user.stripe_customer_id,
+            status="active",
+        )
+
+        if not subscriptions.data:
+            raise ValueError("No canceled subscription to resume")
+
+        sub = subscriptions.data[0]
+        if sub.cancel_at_period_end and sub.current_period_end > int(timezone.now().timestamp()):
+            stripe.Subscription.modify(sub.id, cancel_at_period_end=False)
+            user.subscription_active = True
+            user.save()
+            return True
+        else:
+            raise ValueError("Cannot resume subscription, billing period already ended")
 
     def verify_webhook(self, payload, sig_header):
         """

@@ -37,5 +37,6 @@ urlpatterns = [
     path('payments/subscribe/', SubscribeView.as_view(), name='subscribe'),
     path('payments/tokens/', BuyTokensView.as_view(), name='buy-tokens'),
     path('payments/cancel/', CancelSubscriptionView.as_view(), name='cancel-subscription'),
+    path('payments/resume/', ResumeSubscriptionView.as_view(), name='resume-subscription'),
     path('webhooks/stripe/', StripeWebhookView.as_view(), name='stripe-webhook'),
 ]

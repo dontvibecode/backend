@@ -111,6 +111,39 @@ class CancelSubscriptionView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+class ResumeSubscriptionView(APIView):
+    """
+    API endpoint for resuming a canceled subscription if still within the current billing period.
+    """
+    def __init__(self):
+        self.service = PaymentService()
+    
+    def post(self, request):
+        """
+        POST /payments/resume/
+        Resumes a canceled subscription if still within the current billing period.
+        Returns: { status, message }
+        """
+        try:
+            result = self.service.resume_subscription(request.user)
+            return Response(
+                {
+                    "status": "resumed",
+                    "message": "Pro subscription has been resumed",
+                },
+                status=status.HTTP_200_OK,
+            )
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except stripe.error.StripeError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
 
 @method_decorator(csrf_exempt, name="dispatch")
 class StripeWebhookView(APIView):
