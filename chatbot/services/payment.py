@@ -116,7 +116,7 @@ class PaymentService:
         Resumes a canceled subscription if still within the current billing period.
         """
         user = User.objects.get(email=user.email)
-        print(f"[DEBUG]: user {json.dumps(user)} found")
+        print(f"[DEBUG]: user {str(user)} found")
 
         if not user.stripe_customer_id:
             print(f"[DEBUG]: user.stripe_customer_id not found")
