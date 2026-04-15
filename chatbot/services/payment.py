@@ -136,7 +136,8 @@ class PaymentService:
         sub = subscriptions.data[0]
         print(f"[DEBUG]: sub = {json.dumps(sub)}")
         print(f"[DEBUG]: sub.cancel_at_period_end = {sub.cancel_at_period_end}")
-        if sub.cancel_at_period_end and sub.current_period_end > int(timezone.now().timestamp()):
+        current_period_end = sub["items"]["data"][0]["current_period_end"]
+        if sub.cancel_at_period_end and current_period_end > int(timezone.now().timestamp()):
             stripe.Subscription.modify(sub.id, cancel_at_period_end=False)
             user.subscription_active = True
             user.save()
