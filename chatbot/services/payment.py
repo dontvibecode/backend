@@ -116,8 +116,10 @@ class PaymentService:
         Resumes a canceled subscription if still within the current billing period.
         """
         user = User.objects.get(email=user.email)
+        print(f"[DEBUG]: user {json.dumps(user)} found")
 
         if not user.stripe_customer_id:
+            print(f"[DEBUG]: user.stripe_customer_id not found")
             raise ValueError("No subscription found")
 
         subscriptions = stripe.Subscription.list(
@@ -125,10 +127,14 @@ class PaymentService:
             status="active",
         )
 
+        print(f"[DEBUG]: subscriptions found {json.dumps(subscriptions)}")
+
         if not subscriptions.data:
+            print(f"[DEBUG]: subscriptions.data not found")
             raise ValueError("No canceled subscription to resume")
 
         sub = subscriptions.data[0]
+        print(f"[DEBUG]: sub = {json.dumps(sub)}")
         if sub.cancel_at_period_end and sub.current_period_end > int(timezone.now().timestamp()):
             stripe.Subscription.modify(sub.id, cancel_at_period_end=False)
             user.subscription_active = True

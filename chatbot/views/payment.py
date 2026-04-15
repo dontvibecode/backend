@@ -125,7 +125,9 @@ class ResumeSubscriptionView(APIView):
         Returns: { status, message }
         """
         try:
-            result = self.service.resume_subscription(request.user)
+            print(f"[DEBUG]: resume subscription endpoint reached")
+            self.service.resume_subscription(request.user)
+            print(f"[DEBUG]: resume_subscription ran without error")
             return Response(
                 {
                     "status": "resumed",
