@@ -145,6 +145,58 @@ class PaymentService:
         else:
             raise ValueError("Cannot resume subscription, billing period already ended")
 
+    def create_setup_intent(self, user):
+        """
+        Creates a SetupIntent so the user can save a new payment method.
+        After confirmation, updates the subscription's default payment method.
+        """
+        customer_id = self.get_or_create_stripe_customer(user)
+
+        subscriptions = stripe.Subscription.list(
+            customer=customer_id,
+            status="active",
+        )
+
+        if not subscriptions.data:
+            raise ValueError("No active subscription found")
+
+        setup_intent = stripe.SetupIntent.create(
+            customer=customer_id,
+            metadata={
+                "user_id": str(user.id),
+                "subscription_id": subscriptions.data[0].id,
+            },
+        )
+
+        return {
+            "client_secret": setup_intent.client_secret,
+        }
+
+    def update_subscription_payment_method(self, user, payment_method_id):
+        """
+        Sets a new default payment method on the user's active subscription.
+        """
+        user = User.objects.get(email=user.email)
+
+        if not user.stripe_customer_id:
+            raise ValueError("No subscription found")
+
+        subscriptions = stripe.Subscription.list(
+            customer=user.stripe_customer_id,
+            status="active",
+        )
+
+        if not subscriptions.data:
+            raise ValueError("No active subscription found")
+
+        sub = subscriptions.data[0]
+        stripe.Subscription.modify(
+            sub.id,
+            default_payment_method=payment_method_id,
+        )
+
+        return True
+
     def verify_webhook(self, payload, sig_header):
         """
         Verifies and constructs a Stripe webhook event from the raw payload.
