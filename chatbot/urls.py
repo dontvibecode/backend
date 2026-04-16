@@ -8,7 +8,7 @@ from .views.chat import ChatAPIView, ChatStreamAPIView
 from .views.conversation import ConversationAPIView
 from .views.token import TokenAPIView, TokenUsageAPIView
 from .views.upload import ProfileImageConfirmView, ProfileImageUploadURLView
-from .views.payment import ResumeSubscriptionView, SubscribeView, BuyTokensView, CancelSubscriptionView, UpdatePaymentMethodView, StripeWebhookView
+from .views.payment import ResumeSubscriptionView, SubscribeView, BuyTokensView, CancelSubscriptionView, SetupIntentView, UpdatePaymentMethodView, StripeWebhookView
 
 app_name = 'chatbot'
 
@@ -38,6 +38,7 @@ urlpatterns = [
     path('payments/tokens/', BuyTokensView.as_view(), name='buy-tokens'),
     path('payments/cancel/', CancelSubscriptionView.as_view(), name='cancel-subscription'),
     path('payments/resume/', ResumeSubscriptionView.as_view(), name='resume-subscription'),
+    path('payments/setup-intent/', SetupIntentView.as_view(), name='setup-intent'),
     path('payments/update-method/', UpdatePaymentMethodView.as_view(), name='update-payment-method'),
     path('webhooks/stripe/', StripeWebhookView.as_view(), name='stripe-webhook'),
 ]

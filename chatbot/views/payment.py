@@ -147,11 +147,36 @@ class ResumeSubscriptionView(APIView):
             )
 
 
+class SetupIntentView(APIView):
+    """
+    API endpoint for creating a SetupIntent to save a new payment method.
+    """
+    def __init__(self):
+        self.service = PaymentService()
+
+    def post(self, request):
+        """
+        POST /payments/setup-intent/
+        Returns: { client_secret }
+        """
+        try:
+            result = self.service.create_setup_intent(request.user)
+            return Response(result, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except stripe.error.StripeError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
 class UpdatePaymentMethodView(APIView):
     """
-    API endpoint for updating the subscription's payment method.
-    Step 1: POST without body -> returns SetupIntent client_secret
-    Step 2: POST with payment_method_id -> updates the subscription default
+    API endpoint for setting a new default payment method on the subscription.
     """
     def __init__(self):
         self.service = PaymentService()
@@ -159,23 +184,24 @@ class UpdatePaymentMethodView(APIView):
     def post(self, request):
         """
         POST /payments/update-method/
-        Without body: Returns { client_secret } for SetupIntent
-        With { payment_method_id }: Updates the subscription's default payment method
+        Request: { payment_method_id: string }
+        Returns: { status, message }
         """
         payment_method_id = request.data.get("payment_method_id")
+        if not payment_method_id:
+            return Response(
+                {"error": "payment_method_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
-            if payment_method_id:
-                self.service.update_subscription_payment_method(
-                    request.user, payment_method_id
-                )
-                return Response(
-                    {"status": "updated", "message": "Payment method updated"},
-                    status=status.HTTP_200_OK,
-                )
-            else:
-                result = self.service.create_setup_intent(request.user)
-                return Response(result, status=status.HTTP_200_OK)
+            self.service.update_subscription_payment_method(
+                request.user, payment_method_id
+            )
+            return Response(
+                {"status": "updated", "message": "Payment method updated"},
+                status=status.HTTP_200_OK,
+            )
         except ValueError as e:
             return Response(
                 {"error": str(e)},
