@@ -64,7 +64,7 @@ class LLMService:
             # Create router cache (includes tools since they can't be in generate request)
             print("Creating router system instruction cache...")
             cls._router_cache = client.caches.create(
-                model="gemini-3-flash-preview",
+                model="gemini-3.1-flash-lite-preview",
                 config=types.CreateCachedContentConfig(
                     system_instruction=router_system_instruction,
                     tools=[grounding_tool],
@@ -173,7 +173,7 @@ class LLMService:
             user.token_limit = 200000
             user.save()
         input_token_count = self.client.models.count_tokens(
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             contents=prompt,
         )
         print("Input token count:", input_token_count.total_tokens)
@@ -214,7 +214,7 @@ class LLMService:
             from_user=True,
             conversation_id=conversation.id,
             text=user_input,
-            model_used="gemini-3-pro-preview",
+            model_used="gemini-3.1-pro-preview",
         )
 
         # Build history contents for router (full history)
@@ -246,7 +246,7 @@ class LLMService:
 
         # Stream the router response
         for chunk in self.client.models.generate_content_stream(
-            model="gemini-3-flash-preview",
+            model="gemini-3.1-flash-lite-preview",
             contents=history_contents,  # Full history as contents
             config=router_config,
         ):
@@ -351,7 +351,7 @@ class LLMService:
 
             # Stream the instructor response
             for chunk in self.client.models.generate_content_stream(
-                model="gemini-3-pro-preview",
+                model="gemini-3.1-pro-preview",
                 contents=instructor_contents,  # Only prepared_context, NOT full history!
                 config=instructor_config,
             ):
@@ -408,7 +408,7 @@ class LLMService:
             message = Message.objects.create(
                 from_user=False,
                 conversation_id=conversation.id,
-                model_used="gemini-3-pro-preview",
+                model_used="gemini-3.1-pro-preview",
                 json=final_response,
                 thought=instructor_response_thought,
             )
@@ -451,7 +451,7 @@ class LLMService:
             message = Message.objects.create(
                 from_user=False,
                 conversation_id=conversation.id,
-                model_used="gemini-3-pro-preview",
+                model_used="gemini-3.1-pro-preview",
                 text=response_json.get("response_text"),
             )
 
@@ -489,7 +489,7 @@ class LLMService:
             from_user=True,
             conversation_id=conversation.id,
             text=user_input,
-            model_used="gemini-3-flash-preview",
+            model_used="gemini-3.1-flash-lite-preview",
         )
 
         # Build history contents for router (full history)
@@ -513,7 +513,7 @@ class LLMService:
             print("Using non-cached router system instruction (fallback)")
 
         response = self.client.models.generate_content(
-            model="gemini-3-flash-preview",
+            model="gemini-3.1-flash-lite-preview",
             contents=history_contents,
             config=router_config,
         )
@@ -552,7 +552,7 @@ class LLMService:
             message = Message.objects.create(
                 from_user=False,
                 conversation_id=conversation.id,
-                model_used="gemini-3-pro-preview",
+                model_used="gemini-3.1-pro-preview",
                 json=final_response,
             )
             print("Message creation succeeded.")
@@ -589,7 +589,7 @@ class LLMService:
             message = Message.objects.create(
                 from_user=False,
                 conversation_id=conversation.id,
-                model_used="gemini-3-flash-preview",  # Router response uses flash
+                model_used="gemini-3.1-flash-lite-preview",  # Router response uses flash
                 text=response_json.get("response_text"),
             )
             return message
@@ -617,9 +617,9 @@ class LLMService:
             print("Warning: No prepared_context from router, using basic context")
             instructor_contents = f"""ABILITY LEVEL: {experience_level}
 
-USER'S MESSAGE:
-{user_input}
-"""
+            USER'S MESSAGE:
+            {user_input}
+            """
 
         # Build instructor config
         # Note: Instructor is NOT cached because grounding doesn't work reliably in caches
@@ -640,7 +640,7 @@ USER'S MESSAGE:
             print("Using instructor with grounding (not cached)")
 
         response = self.client.models.generate_content(
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             contents=instructor_contents,
             config=instructor_config,
         )
@@ -733,7 +733,7 @@ USER'S MESSAGE:
 
         print("Exercise Evaluator Prompt successfully created.")
         response = self.client.models.generate_content(
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json", tools=[self.grounding_tool]
@@ -780,7 +780,7 @@ USER'S MESSAGE:
             return {"warning": "Insufficient tokens"}
 
         response = self.client.models.generate_content(
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json", tools=[self.grounding_tool]
