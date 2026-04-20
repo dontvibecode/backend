@@ -1,5 +1,6 @@
 from django.urls import path
 
+
 from .views.exercise import ExerciseAPIView, ExerciseAggregateAPIView, ExerciseBookmarkAPIView, ExerciseSubmissionAPIView, ExerciseSaveAPIView
 
 from .views.user import UserMembershipAPIView, UserWithPreferencesAPIView
@@ -9,6 +10,7 @@ from .views.conversation import ConversationAPIView
 from .views.token import TokenAPIView, TokenUsageAPIView
 from .views.upload import ProfileImageConfirmView, ProfileImageUploadURLView
 from .views.payment import ResumeSubscriptionView, SubscribeView, BuyTokensView, CancelSubscriptionView, SetupIntentView, UpdatePaymentMethodView, StripeWebhookView
+from .views.feedback import FeedbackView
 
 app_name = 'chatbot'
 
@@ -41,4 +43,5 @@ urlpatterns = [
     path('payments/setup-intent/', SetupIntentView.as_view(), name='setup-intent'),
     path('payments/update-method/', UpdatePaymentMethodView.as_view(), name='update-payment-method'),
     path('webhooks/stripe/', StripeWebhookView.as_view(), name='stripe-webhook'),
+    path('feedback/', FeedbackView.as_view(), name='send-feedback'),
 ]
