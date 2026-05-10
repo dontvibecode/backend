@@ -27,7 +27,7 @@ class FeedbackService:
         send_mail(
             subject=f"Feedback from {email}",
             message=message,
-            from_email=email,
+            from_email=EMAIL_HOST_USER,
             recipient_list=[FEEDBACK_RECIPIENT_EMAIL],
         )
 
