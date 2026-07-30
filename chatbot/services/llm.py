@@ -88,31 +88,6 @@ class LLMService:
             print("Falling back to non-cached mode.")
             cls._cache_initialized = False
 
-    def _build_history_contents(self):
-        """
-        Build the conversation history as a formatted string for Gemini.
-        This is used for the router which needs full history context.
-
-        The Gemini SDK expects either a string or properly typed Content objects.
-        We format as a string for simplicity and reliability.
-
-        Returns:
-            str: Formatted conversation history
-        """
-        raw_history = self.get_conversation_history()
-
-        if not raw_history:
-            return "No conversation history yet."
-
-        # Format history as a readable string
-        formatted_parts = []
-        for msg in raw_history:
-            role = msg.get("role", "unknown").upper()
-            parts = msg.get("parts", [])
-            content = parts[0] if parts else ""
-            formatted_parts.append(f"{role}: {content}")
-
-        return "\n\n".join(formatted_parts)
 
     def _build_instructor_contents(
         self, prepared_context, user_input, experience_level
@@ -166,7 +141,7 @@ class LLMService:
         Checks if the user has enough tokens to perform the action.
         """
         user = User.objects.get(id=user_id)
-        if user.membership == "pro" and user.membership_expires_at >= timezone.now():
+        if user.membership == "pro" and timezone.now() >= user.membership_expires_at:
             user.membership = "free"
             user.membership_expires_at = None
             user.token_used = 0
@@ -218,7 +193,7 @@ class LLMService:
         )
 
         # Build history contents for router (full history)
-        history_contents = self._build_history_contents()
+        raw_history = self.get_conversation_history()
 
         # === STAGE 1: Router (with streaming thoughts) ===
         yield {"stage": "routing", "data": None}
@@ -247,7 +222,7 @@ class LLMService:
         # Stream the router response
         for chunk in self.client.models.generate_content_stream(
             model="gemini-3.1-flash-lite-preview",
-            contents=history_contents,  # Full history as contents
+            contents=raw_history,  # Full history as contents
             config=router_config,
         ):
             if chunk.usage_metadata and chunk.usage_metadata.total_token_count:
@@ -493,7 +468,7 @@ class LLMService:
         )
 
         # Build history contents for router (full history)
-        history_contents = self._build_history_contents()
+        raw_history = self.get_conversation_history()
 
         # Build router config - use cache if available
         # Note: When using cached_content, tools must be in the cache (not here)
@@ -514,7 +489,7 @@ class LLMService:
 
         response = self.client.models.generate_content(
             model="gemini-3.1-flash-lite-preview",
-            contents=history_contents,
+            contents=raw_history,
             config=router_config,
         )
 

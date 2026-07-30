@@ -15,16 +15,22 @@ class ChatAPIView(APIView):
     """
     API endpoint for the chat interface.
     """
+
     def get(self, request, pk):
         try:
             messages = ConversationService.get_messages_from_conversation(
-                conversation_id=pk
+                conversation_id=pk, user_id=request.user.id
             )
             output_serializer = MessageSerializer(messages, many=True)
             return Response(output_serializer.data, status=status.HTTP_200_OK)
-        except:
+        except KeyError:
             return Response(
                 {"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+        except PermissionError:
+            return Response(
+                {"error": "Conversation doesn't belong to the user"},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
     def post(self, request):
@@ -38,7 +44,10 @@ class ChatAPIView(APIView):
         if conversation and ConversationService.conversation_message_count_limit(
             user_id=request.user.id, conversation_id=conversation.id
         ):
-            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response(
+                {"warning": "Conversation message count limit reached"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
 
         if conversation:
             llm_service = LLMService(int(conversation.id), user_id=request.user.id)
@@ -85,7 +94,10 @@ class ChatStreamAPIView(APIView):
         if conversation and ConversationService.conversation_message_count_limit(
             user_id=request.user.id, conversation_id=conversation.id
         ):
-            return Response({"warning": "Conversation message count limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response(
+                {"warning": "Conversation message count limit reached"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
 
         if conversation:
             llm_service = LLMService(int(conversation.id), user_id=request.user.id)
@@ -95,15 +107,20 @@ class ChatStreamAPIView(APIView):
         # Token estimation: history + prepared_context (~500 tokens) for router and instructor
         # With caching, we only pay for the dynamic parts (not the cached system instructions)
         conversation_history = llm_service.get_conversation_history()
-        
+
         # Estimate tokens for: router (history) + instructor (prepared_context ~500 tokens)
         # This is a conservative estimate since prepared_context is much smaller than full history
-        estimated_dynamic_content = str(conversation_history) + validated_data["text"] + " " * 500
+        estimated_dynamic_content = (
+            str(conversation_history) + validated_data["text"] + " " * 500
+        )
         has_enough_tokens = llm_service.has_enough_tokens(
             user_id=request.user.id, prompt=estimated_dynamic_content
         )
         if not has_enough_tokens:
-            return Response({"warning": "Insufficient tokens"}, status=status.HTTP_402_PAYMENT_REQUIRED)
+            return Response(
+                {"warning": "Insufficient tokens"},
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
 
         def event_stream():
             """

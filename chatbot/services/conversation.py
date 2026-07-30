@@ -3,8 +3,12 @@ from chatbot.models import Conversation, User
 
 class ConversationService:
     @staticmethod
-    def get_messages_from_conversation(conversation_id):
+    def get_messages_from_conversation(conversation_id, user_id):
         conversation = Conversation.objects.get(id=conversation_id)
+        if not conversation:
+            raise KeyError()
+        if conversation.user != user_id:
+            raise PermissionError()
         messages = conversation.message_set.all().order_by("created_at")
         if conversation:
             return messages
