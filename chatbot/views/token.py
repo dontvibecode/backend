@@ -12,7 +12,7 @@ class TokenAPIView(APIView):
         self.user_service = UserService()
 
     def get(self, request, email):
-        data =self.user_service.get_token_by_user_email(email=email)
+        data =self.user_service.get_token_by_user_email(email=request.user.email)
         if not data:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(data, status=status.HTTP_200_OK)
@@ -26,7 +26,7 @@ class TokenUsageAPIView(APIView):
         self.user_service = UserService()
 
     def get(self, request, email):
-        data = self.user_service.get_token_usage_by_user_email(email=email)
+        data = self.user_service.get_token_usage_by_user_email(email=request.user.email)
         if not data:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
         output_serializer = TokenUsageSerializer(data, many=True)

@@ -1,19 +1,19 @@
+import json
+
 from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-import json
 
+from ..models import Conversation
 from ..services.conversation import ConversationService
-
 from ..services.llm import LLMService
 from ..serializers import MessageSerializer
 
 
 class ChatAPIView(APIView):
     """
-    API endpoint for the chat interface.
+    Read access to the messages of a conversation.
     """
 
     def get(self, request, pk):
@@ -21,58 +21,13 @@ class ChatAPIView(APIView):
             messages = ConversationService.get_messages_from_conversation(
                 conversation_id=pk, user_id=request.user.id
             )
-            output_serializer = MessageSerializer(messages, many=True)
-            return Response(output_serializer.data, status=status.HTTP_200_OK)
-        except KeyError:
+        except Conversation.DoesNotExist:
             return Response(
                 {"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND
             )
-        except PermissionError:
-            return Response(
-                {"error": "Conversation doesn't belong to the user"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
 
-    def post(self, request):
-        # Handle incoming user messages
-        input_serializer = MessageSerializer(data=request.data)
-        if not input_serializer.is_valid():
-            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        validated_data = input_serializer.validated_data
-        conversation = validated_data["conversation"]
-        if conversation and ConversationService.conversation_message_count_limit(
-            user_id=request.user.id, conversation_id=conversation.id
-        ):
-            return Response(
-                {"warning": "Conversation message count limit reached"},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-
-        if conversation:
-            llm_service = LLMService(int(conversation.id), user_id=request.user.id)
-        else:
-            llm_service = LLMService(None, user_id=request.user.id)
-
-        try:
-            print("Validated data:", validated_data)
-            message = llm_service.respond(
-                user_input=validated_data["text"],
-                experience_level=validated_data["experience_level"],
-            )
-            print("Message from LLMService:", message)
-            output_serializer = MessageSerializer(message)
-            print("Output serializer data:", output_serializer.data)
-            response = Response(
-                data=output_serializer.data, status=status.HTTP_201_CREATED
-            )
-            response["Access-Control-Allow-Origin"] = "*"
-            print("Response:", response)
-            return response
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        output_serializer = MessageSerializer(messages, many=True)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
 
 
 class ChatStreamAPIView(APIView):
@@ -85,7 +40,9 @@ class ChatStreamAPIView(APIView):
         Handle POST requests for streaming chat responses.
         """
         # Validate input
-        input_serializer = MessageSerializer(data=request.data)
+        input_serializer = MessageSerializer(
+            data=request.data, context={"request": request}
+        )
         if not input_serializer.is_valid():
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -99,24 +56,21 @@ class ChatStreamAPIView(APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        if conversation:
-            llm_service = LLMService(int(conversation.id), user_id=request.user.id)
-        else:
-            llm_service = LLMService(None, user_id=request.user.id)
+        llm_service = LLMService(
+            int(conversation.id) if conversation else None, user_id=request.user.id
+        )
 
-        # Token estimation: history + prepared_context (~500 tokens) for router and instructor
-        # With caching, we only pay for the dynamic parts (not the cached system instructions)
-        conversation_history = llm_service.get_conversation_history()
-
-        # Estimate tokens for: router (history) + instructor (prepared_context ~500 tokens)
-        # This is a conservative estimate since prepared_context is much smaller than full history
+        # Pre-flight affordability check. The router sees the history and the
+        # instructor sees a short prepared_context, so the history plus a small
+        # allowance approximates what this turn will cost.
         estimated_dynamic_content = (
-            str(conversation_history) + validated_data["text"] + " " * 500
+            str(llm_service.get_conversation_history())
+            + validated_data["text"]
+            + " " * 500
         )
-        has_enough_tokens = llm_service.has_enough_tokens(
+        if not llm_service.has_enough_tokens(
             user_id=request.user.id, prompt=estimated_dynamic_content
-        )
-        if not has_enough_tokens:
+        ):
             return Response(
                 {"warning": "Insufficient tokens"},
                 status=status.HTTP_402_PAYMENT_REQUIRED,
@@ -140,8 +94,10 @@ class ChatStreamAPIView(APIView):
         response = StreamingHttpResponse(
             event_stream(), content_type="text/event-stream"
         )
+        # NOTE: kept because CORS_ALLOWED_ORIGINS only lists localhost, so this
+        # header is what makes the deployed frontend work. Remove it once the
+        # real frontend origin is configured in settings.
         response["Access-Control-Allow-Origin"] = "*"
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"  # Disable nginx buffering
-        # response["Transfer-Encoding"] = "chunked"  # Add this line
         return response

@@ -14,6 +14,16 @@ class MessageSerializer(serializers.ModelSerializer):
         fields = ["id", "created_at", "from_user", "conversation", "model_used", "text", "json", "experience_level", "thought"]
         read_only_fields = ["id", "created_at"]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            # Only allow posting into the requesting user's own conversations.
+            fields["conversation"].queryset = Conversation.objects.filter(
+                user=request.user
+            )
+        return fields
+
 
 class ConversationSerializer(serializers.ModelSerializer):
     exercises_count = serializers.IntegerField(read_only=True, default=0)
@@ -62,11 +72,9 @@ class UserWithPreferencesSerializer(UserSerializer):
         read_only_fields = ["id", "preferences"]
     
     def update(self, instance, validated_data):
-        print("\n\n\nValidated data for update:", validated_data)
         preferences_data = validated_data.pop('preferences', None)
 
         print("\n\n\nPreferences data to update:", preferences_data)
-        print("\n\n\nUser data after popping:", validated_data)
 
         validated_data.pop('email', None)
 

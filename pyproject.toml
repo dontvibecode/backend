@@ -27,3 +27,8 @@ dependencies = [
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+django-stubs = "^6.0.7"
+djangorestframework-stubs = "^3.17.1"
+

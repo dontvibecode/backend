@@ -1,5 +1,6 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.request import Request
 from rest_framework import status
 from django.db.models import Count, Q
 
@@ -13,8 +14,8 @@ class ConversationAPIView(APIView):
     API endpoint for managing conversations.
     """
 
-    def get(self, request, email):
-        conversations = Conversation.objects.filter(user__email=email).annotate(
+    def get(self, request: Request, email):
+        conversations = Conversation.objects.filter(user__email=request.user.email).annotate(
             exercises_count=Count('message__exercises'),
             exercises_almost_count=Count('message__exercises', filter=Q(message__exercises__correctness=1)),
             exercises_correct_count=Count('message__exercises', filter=Q(message__exercises__correctness=2)),
@@ -24,7 +25,7 @@ class ConversationAPIView(APIView):
     
     def post(self, request, pk):
         try:
-            conversation = Conversation.objects.get(id=pk)
+            conversation = Conversation.objects.get(id=pk, user_id=request.user.id)
             conversation.pinned = not conversation.pinned
             conversation.save()
             output_serializer = ConversationSerializer(conversation)
@@ -40,7 +41,7 @@ class ConversationAPIView(APIView):
     
     def delete(self, request, pk):
         try:
-            conversation = Conversation.objects.get(id=pk)
+            conversation = Conversation.objects.get(id=pk, user_id=request.user.id)
             conversation.delete()
             return Response(
                 {"message": "Conversation deleted successfully."},

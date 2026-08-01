@@ -1,12 +1,13 @@
-import json
+import logging
 
 import stripe
-from django.utils import timezone
-from dateutil.relativedelta import relativedelta
 
 from api.settings import STRIPE_SECRET_KEY, STRIPE_PRO_MEMBERSHIP_PRICE_ID, STRIPE_WEBHOOK_SECRET
 
 from ..models import User
+from .user import UserService
+
+logger = logging.getLogger(__name__)
 
 
 class PaymentService:
@@ -14,10 +15,14 @@ class PaymentService:
     Houses all business logic related to Stripe payments,
     subscriptions, and token purchases.
     Uses PaymentIntent / Subscription API for embedded Elements flow.
+
+    Membership and allowance changes are delegated to UserService, which owns
+    that state machine; this class only decides *when* they happen.
     """
 
     def __init__(self):
         stripe.api_key = STRIPE_SECRET_KEY
+        self.users = UserService()
 
     def get_or_create_stripe_customer(self, user):
         """
@@ -31,7 +36,7 @@ class PaymentService:
             metadata={"user_id": str(user.id)},
         )
         user.stripe_customer_id = customer.id
-        user.save()
+        user.save(update_fields=["stripe_customer_id"])
         return customer.id
 
     def create_subscription(self, user):
@@ -49,9 +54,12 @@ class PaymentService:
             },
         )
 
-        print(f"Subscription created: {subscription['id']}, status: {subscription['status']}")
-        print(f"Latest invoice ID: {subscription.latest_invoice['id']}, status: {subscription.latest_invoice['status']}")
-        print(f"Confirmation secret: {subscription.latest_invoice.confirmation_secret}")
+        logger.info(
+            "Created subscription %s (status %s) for user %s",
+            subscription["id"],
+            subscription["status"],
+            user.id,
+        )
 
         return {
             "subscription_id": subscription["id"],
@@ -83,19 +91,10 @@ class PaymentService:
             "client_secret": payment_intent.client_secret,
         }
 
-    def cancel_subscription(self, user):
+    def _active_subscription(self, user):
         """
-        Cancels the user's active subscription at period end.
-        They keep Pro access until the current billing period ends.
-        Returns the period end date or raises ValueError if no subscription found.
+        Returns the user's active Stripe subscription, or raises ValueError.
         """
-        user = User.objects.get(email=user.email)
-        if not user:
-            raise ValueError("User not found")
-
-        user.subscription_active = False
-        user.save()
-
         if not user.stripe_customer_id:
             raise ValueError("No subscription found")
 
@@ -107,64 +106,52 @@ class PaymentService:
         if not subscriptions.data:
             raise ValueError("No active subscription")
 
-        sub = subscriptions.data[0]
+        return subscriptions.data[0]
+
+    def cancel_subscription(self, user):
+        """
+        Cancels the user's active subscription at period end.
+        They keep Pro access until the current billing period ends.
+        Returns the period end date or raises ValueError if no subscription found.
+        """
+        sub = self._active_subscription(user)
+
+        # Stripe first: if this call fails we must not leave the account
+        # marked cancelled while Stripe keeps billing it.
         stripe.Subscription.modify(sub.id, cancel_at_period_end=True)
+
+        user.subscription_active = False
+        user.save(update_fields=["subscription_active"])
         return user.membership_expires_at
-    
+
     def resume_subscription(self, user):
         """
         Resumes a canceled subscription if still within the current billing period.
         """
-        user = User.objects.get(email=user.email)
-        print(f"[DEBUG]: user {str(user)} found")
+        sub = self._active_subscription(user)
 
-        if not user.stripe_customer_id:
-            print(f"[DEBUG]: user.stripe_customer_id not found")
-            raise ValueError("No subscription found")
-
-        subscriptions = stripe.Subscription.list(
-            customer=user.stripe_customer_id,
-            status="active",
-        )
-
-        print(f"[DEBUG]: subscriptions found {json.dumps(subscriptions)}")
-
-        if not subscriptions.data:
-            print(f"[DEBUG]: subscriptions.data not found")
+        if not sub.cancel_at_period_end:
             raise ValueError("No canceled subscription to resume")
 
-        sub = subscriptions.data[0]
-        print(f"[DEBUG]: sub = {json.dumps(sub)}")
-        print(f"[DEBUG]: sub.cancel_at_period_end = {sub.cancel_at_period_end}")
-        current_period_end = sub["items"]["data"][0]["current_period_end"]
-        if sub.cancel_at_period_end and current_period_end > int(timezone.now().timestamp()):
-            stripe.Subscription.modify(sub.id, cancel_at_period_end=False)
-            user.subscription_active = True
-            user.save()
-            return True
-        else:
-            raise ValueError("Cannot resume subscription, billing period already ended")
+        stripe.Subscription.modify(sub.id, cancel_at_period_end=False)
+
+        user.subscription_active = True
+        user.save(update_fields=["subscription_active"])
+        return True
 
     def create_setup_intent(self, user):
         """
         Creates a SetupIntent so the user can save a new payment method.
         After confirmation, updates the subscription's default payment method.
         """
-        customer_id = self.get_or_create_stripe_customer(user)
-
-        subscriptions = stripe.Subscription.list(
-            customer=customer_id,
-            status="active",
-        )
-
-        if not subscriptions.data:
-            raise ValueError("No active subscription found")
+        self.get_or_create_stripe_customer(user)
+        sub = self._active_subscription(user)
 
         setup_intent = stripe.SetupIntent.create(
-            customer=customer_id,
+            customer=user.stripe_customer_id,
             metadata={
                 "user_id": str(user.id),
-                "subscription_id": subscriptions.data[0].id,
+                "subscription_id": sub.id,
             },
         )
 
@@ -176,25 +163,11 @@ class PaymentService:
         """
         Sets a new default payment method on the user's active subscription.
         """
-        user = User.objects.get(email=user.email)
-
-        if not user.stripe_customer_id:
-            raise ValueError("No subscription found")
-
-        subscriptions = stripe.Subscription.list(
-            customer=user.stripe_customer_id,
-            status="active",
-        )
-
-        if not subscriptions.data:
-            raise ValueError("No active subscription found")
-
-        sub = subscriptions.data[0]
+        sub = self._active_subscription(user)
         stripe.Subscription.modify(
             sub.id,
             default_payment_method=payment_method_id,
         )
-
         return True
 
     def verify_webhook(self, payload, sig_header):
@@ -206,74 +179,53 @@ class PaymentService:
             payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
 
+    def _user_for_customer(self, customer_id):
+        user = User.objects.filter(stripe_customer_id=customer_id).first()
+        if not user:
+            logger.warning("No user found for Stripe customer %s", customer_id)
+        return user
+
     def handle_invoice_paid(self, invoice):
         """
         Handles the invoice.payment_succeeded event.
         Called for both the first subscription payment and renewals.
         """
-        print("[DEBUG] Handling invoice.payment_succeeded event")
-        parent = invoice.get("parent", {})
-        subscription_details = parent.get("subscription_details", {})
+        subscription_details = invoice.get("parent", {}).get("subscription_details", {})
         if not subscription_details.get("subscription"):
-            print("[DEBUG] Invoice does not have a subscription ID, skipping")
+            logger.info("Invoice has no subscription; ignoring")
             return
 
-        try:
-            user = User.objects.get(stripe_customer_id=invoice["customer"])
-            print(f"[DEBUG] Found user {user.email} for customer ID {invoice['customer']}")
-        except User.DoesNotExist:
+        user = self._user_for_customer(invoice["customer"])
+        if not user:
             return
 
-        print(f"[DEBUG] Updating user {user.email} membership to Pro")
-        user.membership = "pro"
-        user.token_limit = max(500000, user.token_limit + 200000)  # Add tokens on renewal, cap at 5M
-        user.token_used = 0
-        user.membership_updated_at = timezone.now()
-        user.membership_expires_at = timezone.now() + relativedelta(months=1)
-        user.subscription_active = True
-        user.save()
-        print(f"[DEBUG]: Succeeded")
+        # Payment is the only thing that may grant or extend Pro.
+        self.users.upgrade_to_pro(user)
 
     def handle_payment_intent_succeeded(self, payment_intent):
         """
         Handles the payment_intent.succeeded event for one-time payments.
         Adds purchased tokens to the user's balance.
         """
-        print(f"[DEBUG]: handle_payment_intent_succeeded invoked")
         metadata = payment_intent.get("metadata", {})
-        print(f"[DEBUG]: metadata: {json.dumps(metadata)}")
         if metadata.get("type") != "token_purchase":
-            print(f"[DEBUG]: metadata type is not token_purchase, skipping")
             return
 
-        try:
-            user = User.objects.get(stripe_customer_id=payment_intent["customer"])
-            print(f"[DEBUG] Found user {user.email} for customer ID {payment_intent['customer']}")
-        except User.DoesNotExist:
+        user = self._user_for_customer(payment_intent["customer"])
+        if not user:
             return
 
-        print(f"[DEBUG] Adding tokens to user {user.email}")
         token_amount = int(metadata.get("token_amount", 0))
-        user.token_limit += token_amount
-        user.save()
-        print(f"[DEBUG]: Added {token_amount} tokens to user {user.email}")
+        self.users.add_purchased_tokens(user.id, token_amount)
+        logger.info("Added %s purchased tokens to user %s", token_amount, user.id)
 
     def handle_subscription_deleted(self, subscription):
         """
         Handles the customer.subscription.deleted event.
         Downgrades user back to free tier.
         """
-        print(f"[DEBUG]: handle_subscription_deleted invoked")
-        try:
-            user = User.objects.get(stripe_customer_id=subscription["customer"])
-            user.membership = "free"
-            user.token_limit = 50000
-            user.token_used = 0
-            user.membership_updated_at = timezone.now()
-            user.membership_expires_at = None
-            user.subscription_active = None
-            user.save()
-            print(f"[DEBUG]: user {user.email} downgraded to free tier")
-        except User.DoesNotExist:
-            print(f"[DEBUG]: User not found for customer ID {subscription['customer']}")
-            pass
+        user = self._user_for_customer(subscription["customer"])
+        if not user:
+            return
+
+        self.users.downgrade_to_free(user)

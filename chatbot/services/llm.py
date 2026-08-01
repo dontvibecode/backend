@@ -1,8 +1,10 @@
+import json
+import logging
+from datetime import timedelta
+
 from google import genai
 from google.genai import types
 from django.utils import timezone
-from datetime import timedelta
-import json
 
 from chatbot.models import (
     Conversation,
@@ -15,11 +17,17 @@ from chatbot.models import (
 from chatbot.prompts import (
     router_system_instruction,
     instructor_system_instruction,
-    router_prompt,  # Deprecated, kept for fallback
-    instructor_prompt,  # Deprecated, kept for fallback
     exercise_evaluator_prompt,
     exercise_generator_prompt,
 )
+from chatbot.services.user import FREE_TIER, PRO_TIER, UserService
+
+logger = logging.getLogger(__name__)
+
+# Cheap model that classifies the request and answers simple turns itself.
+ROUTER_MODEL = "gemini-3.1-flash-lite-preview"
+# Expensive model that writes lessons and exercises.
+INSTRUCTOR_MODEL = "gemini-3.1-pro-preview"
 
 
 class LLMService:
@@ -62,32 +70,34 @@ class LLMService:
             grounding_tool = types.Tool(google_search=types.GoogleSearch())
 
             # Create router cache (includes tools since they can't be in generate request)
-            print("Creating router system instruction cache...")
+            logger.info("Creating router system instruction cache...")
             cls._router_cache = client.caches.create(
-                model="gemini-3.1-flash-lite-preview",
+                model=ROUTER_MODEL,
                 config=types.CreateCachedContentConfig(
                     system_instruction=router_system_instruction,
                     tools=[grounding_tool],
                     ttl="86400s",  # 24 hours
                 ),
             )
-            print(f"Router cache created: {cls._router_cache.name}")
+            logger.info("Router cache created: %s", cls._router_cache.name)
 
             # NOTE: We do NOT cache the instructor because grounding (google_search)
             # doesn't work reliably when baked into a cache. The instructor generates
             # lessons with links, so grounding is critical there.
             # The router cache saves tokens; instructor uses grounding for link quality.
             cls._instructor_cache = None
-            print("Instructor cache skipped (grounding requires direct tool access)")
+            logger.info(
+                "Instructor cache skipped (grounding requires direct tool access)"
+            )
 
             cls._cache_initialized = True
-            print("System instruction caches initialized successfully!")
+            logger.info("System instruction caches initialized successfully!")
 
-        except Exception as e:
-            print(f"Warning: Failed to initialize caches: {e}")
-            print("Falling back to non-cached mode.")
+        except Exception:
+            logger.exception(
+                "Failed to initialize caches; falling back to non-cached mode"
+            )
             cls._cache_initialized = False
-
 
     def _build_instructor_contents(
         self, prepared_context, user_input, experience_level
@@ -139,24 +149,15 @@ class LLMService:
     def has_enough_tokens(self, user_id, prompt):
         """
         Checks if the user has enough tokens to perform the action.
+
+        Purely a check: membership expiry and allowance refills are applied by
+        UserService.reconcile_membership when the request is authenticated.
         """
-        user = User.objects.get(id=user_id)
-        if user.membership == "pro" and timezone.now() >= user.membership_expires_at:
-            user.membership = "free"
-            user.membership_expires_at = None
-            user.token_used = 0
-            user.token_limit = 200000
-            user.save()
         input_token_count = self.client.models.count_tokens(
-            model="gemini-3.1-pro-preview",
+            model=INSTRUCTOR_MODEL,
             contents=prompt,
         )
-        print("Input token count:", input_token_count.total_tokens)
-        print("User token limit:", user.token_limit)
-        print("User token used:", user.token_used)
-        if input_token_count.total_tokens > user.token_limit - user.token_used:
-            return False
-        return True
+        return input_token_count.total_tokens <= UserService.tokens_remaining(user_id)
 
     def respond_streaming(self, user_id, user_input, experience_level):
         """
@@ -189,7 +190,7 @@ class LLMService:
             from_user=True,
             conversation_id=conversation.id,
             text=user_input,
-            model_used="gemini-3.1-pro-preview",
+            model_used=INSTRUCTOR_MODEL,
         )
 
         # Build history contents for router (full history)
@@ -208,7 +209,7 @@ class LLMService:
                 response_mime_type="application/json",
                 thinking_config=types.ThinkingConfig(include_thoughts=True),
             )
-            print("Using cached router system instruction")
+            logger.info("Using cached router system instruction")
         else:
             # Fallback: include system_instruction and tools directly
             router_config = types.GenerateContentConfig(
@@ -217,24 +218,19 @@ class LLMService:
                 tools=[self.grounding_tool],
                 thinking_config=types.ThinkingConfig(include_thoughts=True),
             )
-            print("Using non-cached router system instruction (fallback)")
+            logger.info("Using non-cached router system instruction (fallback)")
 
         # Stream the router response
         for chunk in self.client.models.generate_content_stream(
-            model="gemini-3.1-flash-lite-preview",
+            model=ROUTER_MODEL,
             contents=raw_history,  # Full history as contents
             config=router_config,
         ):
             if chunk.usage_metadata and chunk.usage_metadata.total_token_count:
-                print(
-                    "Router chunk token count:", chunk.usage_metadata.total_token_count
-                )
                 final_router_token_count = chunk.usage_metadata.total_token_count
-                final_cached_router_token_count = (
-                    chunk.usage_metadata.cached_content_token_count
-                )
-                print(
-                    "Router chunk cached token count:",
+                logger.debug(
+                    "Router chunk tokens: %s (cached %s)",
+                    chunk.usage_metadata.total_token_count,
                     chunk.usage_metadata.cached_content_token_count,
                 )
 
@@ -254,11 +250,12 @@ class LLMService:
                         # This is the actual response - accumulate it
                         router_response_text += part.text
 
-        user = User.objects.get(id=self.user_id)
-        user.token_used += final_router_token_count
-        user.save(update_fields=["token_used"])
-        print(f"Total tokens used for router: {final_router_token_count}")
-        print(f"Total cached tokens used for router: {final_cached_router_token_count}")
+        tokens_remaining = UserService.consume_tokens(
+            self.user_id, final_router_token_count
+        )
+        logger.info(
+            "Router used %s tokens for user %s", final_router_token_count, self.user_id
+        )
 
         # Parse router response
         try:
@@ -287,12 +284,14 @@ class LLMService:
                 instructor_contents = self._build_instructor_contents(
                     prepared_context, user_input, experience_level
                 )
-                print(
+                logger.info(
                     f"Using prepared_context from router (approx {len(instructor_contents)} chars)"
                 )
             else:
                 # Fallback if router didn't provide prepared_context
-                print("Warning: No prepared_context from router, using basic context")
+                logger.info(
+                    "Warning: No prepared_context from router, using basic context"
+                )
                 instructor_contents = f"""ABILITY LEVEL: {experience_level}
 
                     USER'S MESSAGE:
@@ -302,7 +301,6 @@ class LLMService:
             instructor_response_text = ""
             instructor_response_thought = ""
             final_instructor_token_count = 0
-            final_cached_instructor_token_count = 0
 
             # Build instructor config
             # Note: Instructor is NOT cached because grounding doesn't work reliably in caches
@@ -313,7 +311,7 @@ class LLMService:
                     response_mime_type="application/json",
                     thinking_config=types.ThinkingConfig(include_thoughts=True),
                 )
-                print("Using cached instructor system instruction")
+                logger.info("Using cached instructor system instruction")
             else:
                 # Use grounding tool for accurate, up-to-date links
                 instructor_config = types.GenerateContentConfig(
@@ -322,11 +320,11 @@ class LLMService:
                     tools=[self.grounding_tool],
                     thinking_config=types.ThinkingConfig(include_thoughts=True),
                 )
-                print("Using instructor with grounding (not cached)")
+                logger.info("Using instructor with grounding (not cached)")
 
             # Stream the instructor response
             for chunk in self.client.models.generate_content_stream(
-                model="gemini-3.1-pro-preview",
+                model=INSTRUCTOR_MODEL,
                 contents=instructor_contents,  # Only prepared_context, NOT full history!
                 config=instructor_config,
             ):
@@ -334,15 +332,9 @@ class LLMService:
                     final_instructor_token_count = (
                         chunk.usage_metadata.total_token_count
                     )
-                    final_cached_instructor_token_count = (
-                        chunk.usage_metadata.cached_content_token_count
-                    )
-                    print(
-                        "Instructor chunk token count:",
+                    logger.debug(
+                        "Instructor chunk tokens: %s (cached %s)",
                         chunk.usage_metadata.total_token_count,
-                    )
-                    print(
-                        "Instructor chunk cached token count:",
                         chunk.usage_metadata.cached_content_token_count,
                     )
 
@@ -362,12 +354,13 @@ class LLMService:
                             # Accumulate the JSON response
                             instructor_response_text += part.text
 
-            user = User.objects.get(id=self.user_id)
-            user.token_used += final_instructor_token_count
-            user.save(update_fields=["token_used"])
-            print(f"Total tokens used for instructor: {final_instructor_token_count}")
-            print(
-                f"Total cached tokens used for instructor: {final_cached_instructor_token_count}"
+            tokens_remaining = UserService.consume_tokens(
+                self.user_id, final_instructor_token_count
+            )
+            logger.info(
+                "Instructor used %s tokens for user %s",
+                final_instructor_token_count,
+                self.user_id,
             )
             # Parse instructor response
             try:
@@ -383,7 +376,7 @@ class LLMService:
             message = Message.objects.create(
                 from_user=False,
                 conversation_id=conversation.id,
-                model_used="gemini-3.1-pro-preview",
+                model_used=INSTRUCTOR_MODEL,
                 json=final_response,
                 thought=instructor_response_thought,
             )
@@ -410,9 +403,9 @@ class LLMService:
             conversation.save(update_fields=["tags"])
 
             TokenUsage.objects.create(
-                user=user,
+                user_id=self.user_id,
                 token_used=final_router_token_count + final_instructor_token_count,
-                tokens_remaining=user.token_limit - user.token_used,
+                tokens_remaining=tokens_remaining,
                 action="instructor",
             )
 
@@ -426,218 +419,20 @@ class LLMService:
             message = Message.objects.create(
                 from_user=False,
                 conversation_id=conversation.id,
-                model_used="gemini-3.1-pro-preview",
+                model_used=ROUTER_MODEL,
                 text=response_json.get("response_text"),
             )
 
             TokenUsage.objects.create(
-                user=user,
+                user_id=self.user_id,
                 token_used=final_router_token_count,
-                tokens_remaining=user.token_limit - user.token_used,
+                tokens_remaining=tokens_remaining,
                 action="router",
             )
 
             from chatbot.serializers import MessageSerializer
 
             yield {"stage": "complete", "data": MessageSerializer(message).data}
-
-    def respond(self, user_input, experience_level):
-        """
-        Non-streaming version of respond. Uses cached system instructions.
-
-        Note: The streaming version (respond_streaming) is preferred for production
-        as it provides real-time feedback to users.
-        """
-        if self.conversation_id is not None:
-            conversation = Conversation.objects.get(id=self.conversation_id)
-        else:
-            try:
-                conversation = Conversation.objects.create(
-                    user_id=self.user_id,
-                    title="New Conversation",
-                )
-                self.conversation_id = conversation.id
-            except Exception as e:
-                raise e
-
-        Message.objects.create(
-            from_user=True,
-            conversation_id=conversation.id,
-            text=user_input,
-            model_used="gemini-3.1-flash-lite-preview",
-        )
-
-        # Build history contents for router (full history)
-        raw_history = self.get_conversation_history()
-
-        # Build router config - use cache if available
-        # Note: When using cached_content, tools must be in the cache (not here)
-        if self._router_cache:
-            router_config = types.GenerateContentConfig(
-                cached_content=self._router_cache.name,
-                response_mime_type="application/json",
-            )
-            print("Using cached router system instruction")
-        else:
-            # Fallback: include system_instruction and tools directly
-            router_config = types.GenerateContentConfig(
-                system_instruction=router_system_instruction,
-                response_mime_type="application/json",
-                tools=[self.grounding_tool],
-            )
-            print("Using non-cached router system instruction (fallback)")
-
-        response = self.client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview",
-            contents=raw_history,
-            config=router_config,
-        )
-
-        tokens_used = response.usage_metadata.total_token_count
-        cached_tokens = response.usage_metadata.cached_content_token_count
-        print(f"Tokens used for router: {tokens_used}")
-        print(f"Cached tokens used for router: {cached_tokens}")
-        user = User.objects.get(id=self.user_id)
-        user.token_used += tokens_used
-        user.save(update_fields=["token_used"])
-
-        try:
-            response_json = json.loads(response.text, strict=False)
-            use_instructor = response_json.get("redirect", False)
-            prepared_context = response_json.get("prepared_context")
-        except Exception as e:
-            raise e
-
-        title = response_json.get("title")
-        print("Updating conversation title to:", title)
-        if title:
-            try:
-                conversation.title = title
-                conversation.save(update_fields=["title"])
-            except Exception as e:
-                print("Failed to update conversation title:", e)
-                raise
-
-        if use_instructor:
-            print("Using instructor model")
-            final_response = self.use_instructor(
-                user_input, experience_level, prepared_context
-            )
-            print("Final response from instructor:", final_response)
-            message = Message.objects.create(
-                from_user=False,
-                conversation_id=conversation.id,
-                model_used="gemini-3.1-pro-preview",
-                json=final_response,
-            )
-            print("Message creation succeeded.")
-            exercise_title = final_response.get("exercise_title")
-            exercise_tags = final_response.get("exercise_tags", [])
-            exercises = final_response.get("exercises", [])
-            print("Exercises to be created:", exercises)
-            print("Type of exercises variable:", type(exercises))
-
-            if exercises:
-                new_exercise = Exercise.objects.create(
-                    message=message,
-                    title=exercise_title,
-                    tags=exercise_tags,
-                )
-                for exercise_file in exercises:
-                    try:
-                        ExerciseFile.objects.create(
-                            exercise=new_exercise,
-                            filename=exercise_file["filename"],
-                            text=exercise_file["text"],
-                            code=exercise_file["code"],
-                        )
-                    except Exception as e:
-                        print("Failed to create exercise:", e)
-                        raise
-
-            conversation.tags = final_response.get("tags", [])
-            print("Updating conversation tags to:", conversation.tags)
-            conversation.save(update_fields=["tags"])
-            print("Message created:", message)
-            return message
-        else:
-            message = Message.objects.create(
-                from_user=False,
-                conversation_id=conversation.id,
-                model_used="gemini-3.1-flash-lite-preview",  # Router response uses flash
-                text=response_json.get("response_text"),
-            )
-            return message
-
-    def use_instructor(self, user_input, experience_level, prepared_context):
-        """
-        Call the instructor AI with prepared_context from router.
-        Uses cached system instruction for efficiency.
-
-        Args:
-            user_input: The user's current message
-            experience_level: The user's ability level
-            prepared_context: Dict with learning_summary from router (NOT full history)
-        """
-        # Build instructor contents using prepared_context
-        if prepared_context:
-            instructor_contents = self._build_instructor_contents(
-                prepared_context, user_input, experience_level
-            )
-            print(
-                f"Using prepared_context from router (approx {len(instructor_contents)} chars)"
-            )
-        else:
-            # Fallback if no prepared_context
-            print("Warning: No prepared_context from router, using basic context")
-            instructor_contents = f"""ABILITY LEVEL: {experience_level}
-
-            USER'S MESSAGE:
-            {user_input}
-            """
-
-        # Build instructor config
-        # Note: Instructor is NOT cached because grounding doesn't work reliably in caches
-        # This ensures links in lessons are accurate via real-time Google Search
-        if self._instructor_cache:
-            instructor_config = types.GenerateContentConfig(
-                cached_content=self._instructor_cache.name,
-                response_mime_type="application/json",
-            )
-            print("Using cached instructor system instruction")
-        else:
-            # Use grounding tool for accurate, up-to-date links
-            instructor_config = types.GenerateContentConfig(
-                system_instruction=instructor_system_instruction,
-                response_mime_type="application/json",
-                tools=[self.grounding_tool],
-            )
-            print("Using instructor with grounding (not cached)")
-
-        response = self.client.models.generate_content(
-            model="gemini-3.1-pro-preview",
-            contents=instructor_contents,
-            config=instructor_config,
-        )
-
-        tokens_used = response.usage_metadata.total_token_count
-        cached_tokens = response.usage_metadata.cached_content_token_count
-        print(f"Cached tokens used for instructor: {cached_tokens}")
-        print(f"Tokens used for instructor: {tokens_used}")
-        user = User.objects.get(id=self.user_id)
-        user.token_used += tokens_used
-        user.save(update_fields=["token_used"])
-
-        print(
-            "Instructor response text:",
-            response.text[:500] if response.text else "None",
-        )
-        try:
-            final_response = json.loads(response.text, strict=False)
-            return final_response
-        except json.JSONDecodeError as e:
-            print("JSON decoding error:", e)
-            raise e
 
     def get_conversation_history(self, limit=20):
         """
@@ -651,7 +446,7 @@ class LLMService:
         # Fetch messages in chronological order
         messages = Message.objects.filter(
             conversation_id=self.conversation_id
-        ).order_by("created_at")[:limit]
+        ).order_by("-created_at")[:limit][::-1]
 
         formatted_history = []
         for msg in messages:
@@ -668,13 +463,13 @@ class LLMService:
 
         return formatted_history
 
-    def mark_exercise(self, ability_level, message, exercise_id, user_submission):
+    def mark_exercise(self, ability_level, message, exercise_id, user_submission, user_id):
         """
         Gives feedback for a particular coding exercise when the user submits it.
         """
         user = User.objects.get(id=self.user_id)
         explain = True
-        if user.membership == "free":
+        if user.membership == FREE_TIER:
             if user.free_feedback_for_exercises_refresh_at:
                 if user.free_feedback_for_exercises_refresh_at > timezone.now():
                     explain = False
@@ -691,7 +486,7 @@ class LLMService:
                 )
                 user.save(update_fields=["free_feedback_for_exercises_refresh_at"])
 
-        exercise = Exercise.objects.get(id=exercise_id)
+        exercise = Exercise.objects.get(id=exercise_id, converation__message__user_id=user_id)
         original_exercise = json.dumps(
             list(exercise.files.values("filename", "text", "code"))
         )
@@ -706,9 +501,9 @@ class LLMService:
         if not self.has_enough_tokens(self.user_id, prompt):
             return {"warning": "Insufficient tokens"}
 
-        print("Exercise Evaluator Prompt successfully created.")
+        logger.info("Exercise Evaluator Prompt successfully created.")
         response = self.client.models.generate_content(
-            model="gemini-3.1-pro-preview",
+            model=INSTRUCTOR_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json", tools=[self.grounding_tool]
@@ -716,27 +511,26 @@ class LLMService:
         )
 
         tokens_used = response.usage_metadata.total_token_count
-        cached_tokens = response.usage_metadata.cached_content_token_count
-        print(f"Cached tokens used for exercise evaluation: {cached_tokens}")
-        print("Tokens used for exercise evaluation:", tokens_used)
-        user.token_used += tokens_used
-        user.save(update_fields=["token_used"])
+        logger.info(
+            "Exercise evaluation used %s tokens for user %s", tokens_used, self.user_id
+        )
+        tokens_remaining = UserService.consume_tokens(self.user_id, tokens_used)
 
         TokenUsage.objects.create(
-            user=user,
+            user_id=self.user_id,
             token_used=tokens_used,
-            tokens_remaining=user.token_limit - user.token_used,
+            tokens_remaining=tokens_remaining,
             action="exercise_evaluator",
         )
 
-        print("Exercise Evaluator response text:", response.text)
+        logger.info("Exercise Evaluator response text: %s", response.text)
         response_json = json.loads(response.text, strict=False)
         exercise.feedback = response_json
         exercise.save(update_fields=["feedback"])
         exercise.correctness = response_json.get("correctness")
-        print("Updating exercise correctness to:", exercise.correctness)
+        logger.info("Updating exercise correctness to: %s", exercise.correctness)
         exercise.save(update_fields=["correctness"])
-        print("Exercise correctness updated.")
+        logger.info("Exercise correctness updated.")
         return response.text
 
     def generate_exercise(self, ability_level, message, exercise_files_text):
@@ -749,13 +543,13 @@ class LLMService:
             message=full_message,
             exercise_files=exercise_files_text,
         )
-        print("Exercise Generation Prompt successfully created.")
+        logger.info("Exercise Generation Prompt successfully created.")
 
         if not self.has_enough_tokens(self.user_id, prompt):
             return {"warning": "Insufficient tokens"}
 
         response = self.client.models.generate_content(
-            model="gemini-3.1-pro-preview",
+            model=INSTRUCTOR_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json", tools=[self.grounding_tool]
@@ -763,21 +557,19 @@ class LLMService:
         )
 
         tokens_used = response.usage_metadata.total_token_count
-        cached_tokens = response.usage_metadata.cached_content_token_count
-        print(f"Cached tokens used for exercise generation: {cached_tokens}")
-        print("Tokens used for exercise generation:", tokens_used)
-        user = User.objects.get(id=self.user_id)
-        user.token_used += tokens_used
-        user.save(update_fields=["token_used"])
+        logger.info(
+            "Exercise generation used %s tokens for user %s", tokens_used, self.user_id
+        )
+        tokens_remaining = UserService.consume_tokens(self.user_id, tokens_used)
 
         TokenUsage.objects.create(
-            user=user,
+            user_id=self.user_id,
             token_used=tokens_used,
-            tokens_remaining=user.token_limit - user.token_used,
+            tokens_remaining=tokens_remaining,
             action="exercise_generator",
         )
 
-        print("Exercise Generation response text:", response.text)
+        logger.info("Exercise Generation response text: %s", response.text)
         try:
             exercise_data = json.loads(response.text, strict=False)
             exercise_title = exercise_data["exercise_title"]
@@ -800,30 +592,26 @@ class LLMService:
             }
             return final_response
         except json.JSONDecodeError as e:
-            print("JSON decoding error during exercise generation:", e)
+            logger.info("JSON decoding error during exercise generation: %s", e)
             raise e
 
-    def save_user_submission(self, exercise_file_id, user_submission):
+    def save_user_submission(self, exercise_file_id, user_submission, user_id):
         """
         Saves the user's submission for a specific exercise file.
         """
         try:
-            exercise_file = ExerciseFile.objects.get(id=exercise_file_id)
+            exercise_file = ExerciseFile.objects.get(
+                id=exercise_file_id, message__conversation__user_id=user_id
+            )
             exercise_file.user_submission = user_submission
             exercise_file.save(update_fields=["user_submission"])
-            print("User submission saved for ExerciseFile ID:", exercise_file_id)
+            logger.info(
+                "User submission saved for ExerciseFile ID: %s", exercise_file_id
+            )
             return {"status": "success"}
         except ExerciseFile.DoesNotExist:
-            print("ExerciseFile not found for ID:", exercise_file_id)
+            logger.info("ExerciseFile not found for ID: %s", exercise_file_id)
             return {"status": "error", "message": "Exercise file not found."}
-
-    def update_token_used(self, user, token_used):
-        """
-        Updates the token used for a given user.
-        """
-        user.token_used += token_used
-        user.save(update_fields=["token_used"])
-        return user.token_used
 
     def exercise_count_limit_reached(self, user_id, message_id):
         """
@@ -831,8 +619,8 @@ class LLMService:
         """
         user = User.objects.get(id=user_id)
         message = Message.objects.get(id=message_id)
-        if (user.membership == "free" and message.exercises.count() >= 2) or (
-            user.membership == "pro" and message.exercises.count() >= 10
+        if (user.membership == FREE_TIER and message.exercises.count() >= 2) or (
+            user.membership == PRO_TIER and message.exercises.count() >= 10
         ):
             return True
         return False

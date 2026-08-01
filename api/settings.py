@@ -14,7 +14,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 
-
 load_dotenv()
 
 
@@ -29,14 +28,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("SECRET_KEY", "")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
+DEBUG = os.getenv("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = [
-  "localhost",
-  "127.0.0.1",
-  "dontvibecode-api.onrender.com",
-  'dontvibecode.uc.r.appspot.com',
-  ".run.app",
+    "localhost",
+    "127.0.0.1",
+    "dontvibecode-api.onrender.com",
+    "dontvibecode.uc.r.appspot.com",
+    ".run.app",
 ]
 
 # Application definition
@@ -49,8 +48,6 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    "rest_framework.authtoken",
-    "rest_framework_simplejwt",
     "corsheaders",
     "chatbot",
 ]
@@ -84,29 +81,24 @@ TEMPLATES = [
 ]
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'chatbot.authentication.GoogleIDTokenAuthentication', 
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "chatbot.authentication.GoogleIDTokenAuthentication",
     ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
     ],
 }
 
 WSGI_APPLICATION = "api.wsgi.application"
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-]
+CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "https://dontvibecode.com"]
 
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
-    "https://dontvibecode.uc.r.appspot.com",
-]
+CSRF_TRUSTED_ORIGINS = ["http://localhost:3000", "https://dontvibecode.com"]
 
 CORS_ALLOW_HEADERS = [
-    'content-type',
-    'authorization',
-    'access-control-request-headers',
+    "content-type",
+    "authorization",
+    "access-control-request-headers",
 ]
 
 # Database
@@ -160,12 +152,33 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Logging: our own loggers need an explicit handler, otherwise anything logged
+# outside the `django` namespace is dropped instead of reaching Cloud Run.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {"format": "%(levelname)s %(asctime)s %(name)s %(message)s"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "standard"},
+    },
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        "chatbot": {
+            "handlers": ["console"],
+            "level": os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO"),
+            "propagate": False,
+        },
+    },
+}
 
 BUCKET_NAME = os.getenv("BUCKET_NAME", None)
 

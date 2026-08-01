@@ -18,14 +18,14 @@ class ExerciseAPIView(APIView):
         """
         Retrieve all exercises by associated message ID.
         """
-        exercises = (
-            Exercise.objects
-            .filter(message_id=message_id)
-            .prefetch_related("files")
-        )
+        exercises = Exercise.objects.filter(
+            message_id=message_id, message__conversation__user_id=request.user.id
+        ).prefetch_related("files")
 
         if not exercises.exists():
-            return Response({"error": "Exercise not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Exercise not found."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         # Return a mapping keyed by exercise_id so the frontend can look up exercises easily.
         data = {
@@ -55,41 +55,48 @@ class ExerciseAPIView(APIView):
         }
 
         return Response(data, status=status.HTTP_200_OK)
-        
+
     def post(self, request, message_id):
         """
         Create a new exercise.
         """
         try:
-            message = Message.objects.get(id=message_id)
+            message = Message.objects.get(id=message_id, conversation__user_id=request.user.id)
         except Message.DoesNotExist:
-            return Response({"error": "Message not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Message not found."}, status=status.HTTP_404_NOT_FOUND
+            )
         llm_service = LLMService(None, request.user.id)
 
         if llm_service.exercise_count_limit_reached(request.user.id, message_id):
-            return Response({"warning": "Exercise count limit reached."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response(
+                {"warning": "Exercise count limit reached."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
 
         response = llm_service.generate_exercise(
             ability_level=request.data.get("ability_level", "beginner"),
             message=message,
-            exercise_files_text=json.dumps([
-                list(exercise.files.values('filename', 'text', 'code')) 
-                for exercise in message.exercises.all()
-            ]),
+            exercise_files_text=json.dumps(
+                [
+                    list(exercise.files.values("filename", "text", "code"))
+                    for exercise in message.exercises.all()
+                ]
+            ),
         )
-        if isinstance(response, dict) and response.get("warning") == "Insufficient tokens":
-            return Response(
-                response,
-                status=status.HTTP_402_PAYMENT_REQUIRED
-            )
+        if (
+            isinstance(response, dict)
+            and response.get("warning") == "Insufficient tokens"
+        ):
+            return Response(response, status=status.HTTP_402_PAYMENT_REQUIRED)
         return Response(response, status=status.HTTP_201_CREATED)
-        
 
 
 class ExerciseSubmissionAPIView(APIView):
     """
     API view for AI evaluation of exercise submissions.
     """
+
     def post(self, request):
         """
         Evaluate a user's exercise submission.
@@ -100,18 +107,26 @@ class ExerciseSubmissionAPIView(APIView):
         validated_data = input_serializer.validated_data
 
         try:
-            message_obj = Message.objects.get(id=validated_data["message_id"])
+            message_obj = Message.objects.get(
+                id=validated_data["message_id"], conversation__user_id=request.user.id
+            )
             full_message = message_obj.json
         except Message.DoesNotExist:
             return Response(
-                {"error": f"Message with id {validated_data['message_id']} does not exist."},
-                status=status.HTTP_404_NOT_FOUND
+                {
+                    "error": f"Message with id {validated_data['message_id']} does not exist."
+                },
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         user_submissions = validated_data["user_submissions"]
         exercise_file_ids = validated_data["exercise_file_ids"]
 
-        if not user_submissions or not exercise_file_ids or len(user_submissions) != len(exercise_file_ids):
+        if (
+            not user_submissions
+            or not exercise_file_ids
+            or len(user_submissions) != len(exercise_file_ids)
+        ):
             return Response(
                 {"error": "Invalid input data."}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -124,26 +139,29 @@ class ExerciseSubmissionAPIView(APIView):
                 exercise_id=validated_data["exercise_id"],
                 user_submission=json.dumps(user_submissions),
             )
-            if isinstance(response, dict) and response.get("warning") == "Insufficient tokens":
-                return Response(
-                    response,
-                    status=status.HTTP_402_PAYMENT_REQUIRED
-                )
+            if (
+                isinstance(response, dict)
+                and response.get("warning") == "Insufficient tokens"
+            ):
+                return Response(response, status=status.HTTP_402_PAYMENT_REQUIRED)
         except Exception as e:
             return Response(
                 {"error": f"Failed to mark exercise: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         for i in range(len(user_submissions)):
             save_result = llm_service.save_user_submission(
                 exercise_file_id=exercise_file_ids[i],
                 user_submission=user_submissions[i],
+                user_id=request.user.id,
             )
             if isinstance(save_result, dict) and save_result.get("status") == "error":
                 return Response(
-                    {"error": f"Failed to save user submission for file id {exercise_file_ids[i]}: {save_result.get('message', '')}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    {
+                        "error": f"Failed to save user submission for file id {exercise_file_ids[i]}: {save_result.get('message', '')}"
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
         print("LLMService response for marking user data:", response)
@@ -154,13 +172,18 @@ class ExerciseSaveAPIView(APIView):
     """
     API view to save user submissions for exercises.
     """
+
     def post(self, request):
         """
         Save the user's submission for a specific exercise. Expects a list of submissions and corresponding list of exercise file IDs.
         """
         user_submissions = request.data.get("user_submissions", None)
         exercise_file_ids = request.data.get("exercise_file_ids", None)
-        if not user_submissions or not exercise_file_ids or len(user_submissions) != len(exercise_file_ids):
+        if (
+            not user_submissions
+            or not exercise_file_ids
+            or len(user_submissions) != len(exercise_file_ids)
+        ):
             return Response(
                 {"error": "Invalid input data."}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -169,6 +192,7 @@ class ExerciseSaveAPIView(APIView):
             llm_service.save_user_submission(
                 exercise_file_id=exercise_file_ids[i],
                 user_submission=user_submissions[i],
+                user_id=request.user.id,
             )
         return Response(
             {"status": "User submissions saved."}, status=status.HTTP_200_OK
@@ -179,37 +203,37 @@ class ExerciseBookmarkAPIView(APIView):
     """
     API view to bookmark an exercise.
     """
+
     def get(self, request, user_email):
         """
         Get all bookmarked exercises for a user.
         """
-        exercises = (
-            Exercise.objects
-            .filter(bookmarked=True, message__conversation__user__email=user_email)
-            .values(
-                "id",
-                "message_id",
-                "message__conversation_id",
-                "correctness",
-                "bookmarked",
-                "title",
-                "tags",
-            )
+        exercises = Exercise.objects.filter(
+            bookmarked=True, message__conversation__user__email=request.user.email
+        ).values(
+            "id",
+            "message_id",
+            "message__conversation_id",
+            "correctness",
+            "bookmarked",
+            "title",
+            "tags",
         )
 
         return Response(list(exercises), status=status.HTTP_200_OK)
-
 
     def post(self, request, exercise_id):
         """
         Toggle the bookmark status of an exercise.
         """
         try:
-            exercise = Exercise.objects.get(id=exercise_id)
+            exercise = Exercise.objects.get(
+                id=exercise_id, message__conversation__user_id=request.user.id
+            )
         except Exercise.DoesNotExist:
             return Response(
                 {"error": f"Exercise with id {exercise_id} does not exist."},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_404_NOT_FOUND,
             )
         try:
             exercise.bookmarked = not exercise.bookmarked
@@ -218,7 +242,7 @@ class ExerciseBookmarkAPIView(APIView):
         except Exception as e:
             return Response(
                 {"error": f"Failed to update bookmark status: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
@@ -226,22 +250,29 @@ class ExerciseAggregateAPIView(APIView):
     """
     API view to get aggregated exercises for a conversation.
     """
+
     def get(self, request, conversation_id):
         """
         Get aggregated exercises for a conversation.
         """
         try:
-            exercises = Exercise.objects.filter(message__conversation_id=conversation_id)
+            exercises = Exercise.objects.filter(
+                message__conversation_id=conversation_id,
+                message__conversation__user_id=request.user.id,
+            )
             exercises_count = exercises.count()
             exercises_almost_count = exercises.filter(correctness=1).count()
             exercises_correct_count = exercises.filter(correctness=2).count()
-            return Response({
-                "exercises_count": exercises_count,
-                "exercises_almost_count": exercises_almost_count,
-                "exercises_correct_count": exercises_correct_count
-            }, status=status.HTTP_200_OK)
+            return Response(
+                {
+                    "exercises_count": exercises_count,
+                    "exercises_almost_count": exercises_almost_count,
+                    "exercises_correct_count": exercises_correct_count,
+                },
+                status=status.HTTP_200_OK,
+            )
         except Exception as e:
             return Response(
                 {"error": f"Failed to get aggregated exercises: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

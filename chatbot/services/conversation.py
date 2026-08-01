@@ -1,26 +1,30 @@
 from chatbot.models import Conversation, User
+from chatbot.services.user import FREE_TIER
+
+FREE_MESSAGES_PER_CONVERSATION = 6
+PRO_MESSAGES_PER_CONVERSATION = 25
 
 
 class ConversationService:
     @staticmethod
     def get_messages_from_conversation(conversation_id, user_id):
-        conversation = Conversation.objects.get(id=conversation_id)
-        if not conversation:
-            raise KeyError()
-        if conversation.user != user_id:
-            raise PermissionError()
-        messages = conversation.message_set.all().order_by("created_at")
-        if conversation:
-            return messages
-        return None
+        """
+        Messages of one of the user's own conversations.
+        Raises Conversation.DoesNotExist if it is missing or not theirs.
+        """
+        conversation = Conversation.objects.get(id=conversation_id, user_id=user_id)
+        return conversation.message_set.all().order_by("created_at")
 
     @staticmethod
     def conversation_message_count_limit(user_id, conversation_id):
-        conversation = Conversation.objects.get(id=conversation_id)
+        """
+        True when the conversation has hit the message cap for the user's tier.
+        """
+        conversation = Conversation.objects.get(id=conversation_id, user_id=user_id)
         user = User.objects.get(id=user_id)
-        count = conversation.message_set.count()
-        if (user.membership == "free" and count < 6) or (
-            user.membership == "pro" and count < 25
-        ):
-            return False
-        return True
+        cap = (
+            FREE_MESSAGES_PER_CONVERSATION
+            if user.membership == FREE_TIER
+            else PRO_MESSAGES_PER_CONVERSATION
+        )
+        return conversation.message_set.count() >= cap

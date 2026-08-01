@@ -7,7 +7,7 @@ class User(models.Model):
     username = models.CharField(max_length=150, unique=True)
     method = models.CharField(choices=[("google", "Google")], default="google")
     email = models.EmailField(unique=True)
-    token_limit = models.IntegerField(default=200000)
+    token_limit = models.IntegerField(default=100000)
     token_used = models.IntegerField(default=0)
     membership = models.CharField(
         choices=[("free", "Free"), ("pro", "Pro")], default="free"
@@ -130,3 +130,8 @@ class ExerciseFile(models.Model):
 
     def __str__(self):
         return f"File {self.filename} for Exercise {self.exercise.id}"
+
+
+class ProcessedStripeEvent(models.Model):
+    event_id = models.CharField(max_length=255, unique=True)  # the unique= is what enforces idempotency
+    processed_at = models.DateTimeField(auto_now_add=True)

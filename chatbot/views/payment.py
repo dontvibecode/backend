@@ -1,5 +1,6 @@
-import json
+import logging
 
+from django.db import IntegrityError, transaction
 import stripe
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -7,8 +8,12 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
+from ..models import ProcessedStripeEvent
+
 from ..services.payment import PaymentService
 from api.settings import STRIPE_TOKEN_PACK_200K_PRICE_ID
+
+logger = logging.getLogger(__name__)
 
 
 class SubscribeView(APIView):
@@ -125,9 +130,7 @@ class ResumeSubscriptionView(APIView):
         Returns: { status, message }
         """
         try:
-            print(f"[DEBUG]: resume subscription endpoint reached")
             self.service.resume_subscription(request.user)
-            print(f"[DEBUG]: resume_subscription ran without error")
             return Response(
                 {
                     "status": "resumed",
@@ -234,8 +237,6 @@ class StripeWebhookView(APIView):
         payload = request.body
         sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
 
-        print(f"[DEBUG]: event type {payload.decode('utf-8')}")
-
         try:
             event = self.service.verify_webhook(payload, sig_header)
         except ValueError:
@@ -251,14 +252,25 @@ class StripeWebhookView(APIView):
 
         event_type = event["type"]
         data = event["data"]["object"]
-        print(f"[DEBUG]: event: {event}")
+        event_id = event["id"]
+        logger.info("Received Stripe event %s (%s)", event_id, event_type)
 
-        if event_type == "invoice.payment_succeeded":
-            self.service.handle_invoice_paid(data)
-        elif event_type == "payment_intent.succeeded":
-            self.service.handle_payment_intent_succeeded(data)
-        elif event_type == "customer.subscription.deleted":
-            self.service.handle_subscription_deleted(data)
+        if ProcessedStripeEvent.objects.filter(event_id=event_id).exists():
+            logger.info("Duplicate Stripe event %s, skipping", event_id)
+            return Response({"status": "already processed"}, status=status.HTTP_200_OK)
 
-        print(f"[DEBUG]: Finished processing event {event_type} with status: success.")
+        try:
+            with transaction.atomic():
+                ProcessedStripeEvent.objects.create(event_id=event_id)
+                if event_type == "invoice.payment_succeeded":
+                    self.service.handle_invoice_paid(data)
+                elif event_type == "payment_intent.succeeded":
+                    self.service.handle_payment_intent_succeeded(data)
+                elif event_type == "customer.subscription.deleted":
+                    self.service.handle_subscription_deleted(data)
+
+        except IntegrityError:
+            return Response({"status": "already processed"}, status=status.HTTP_200_OK)            
+
+        logger.info("Processed Stripe event %s (%s)", event_id, event_type)
         return Response({"status": "success"}, status=status.HTTP_200_OK)
