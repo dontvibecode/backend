@@ -87,6 +87,31 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    # Applied only to views that opt in with a `throttle_scope`.
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "feedback": "3/day",
+    },
+    # How many proxies sit in front of Django, used to pick the caller's real
+    # address out of X-Forwarded-For. Cloud Run puts one front end in front of
+    # us. If this number is wrong the throttle key becomes client-controlled
+    # and the limit is trivially bypassed, so verify it against a real request
+    # (log request.META["HTTP_X_FORWARDED_FOR"]) if the deployment changes.
+    "NUM_PROXIES": int(os.getenv("NUM_PROXIES", "1")),
+}
+
+# Throttle counters live here, so this MUST be shared across processes. The
+# default (locmem) is a dict inside a single worker: with several gunicorn
+# workers per container and several containers, every one of them would keep
+# its own tally and the limit would mean nothing. The database is the shared
+# store we already run; swap in Redis if throughput ever justifies it.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache_table",
+    }
 }
 
 WSGI_APPLICATION = "api.wsgi.application"

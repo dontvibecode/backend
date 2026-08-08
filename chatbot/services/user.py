@@ -26,6 +26,10 @@ BILLING_PERIOD = relativedelta(months=1)
 TIER_TOKEN_LIMITS = {FREE_TIER: FREE_TOKEN_LIMIT, PRO_TIER: PRO_TOKEN_LIMIT}
 
 
+class InsufficientTokensError(Exception):
+    """Raised when a token charge would exceed the user's allowance."""
+
+
 class UserService:
     """
     Houses all business logic related to User and Preferences models,
@@ -112,6 +116,22 @@ class UserService:
             n += 1
             username = f"{base} ({n})"
         return username
+
+    # --- Update user profile ----------------------------------------------
+
+    def update_profile(self, user, *, username=None, preferences=None):
+        """
+        Updates a user's profile.
+        """
+        with transaction.atomic():
+            if username is not None:
+                user.username = username
+                user.save(update_fields=["username"])
+            if preferences:
+                for field, value in preferences.items():
+                    setattr(user.preferences, field, value)
+                user.preferences.save(update_fields=list(preferences.keys()))
+        return User.objects.select_related("preferences").get(id=user.id)
 
     # --- Membership state machine ----------------------------------------
 
@@ -200,7 +220,11 @@ class UserService:
             membership_expires_at=now + BILLING_PERIOD,
         )
         user.refresh_from_db()
-        logger.info("User %s upgraded/renewed to pro until %s", user.id, user.membership_expires_at)
+        logger.info(
+            "User %s upgraded/renewed to pro until %s",
+            user.id,
+            user.membership_expires_at,
+        )
         return True
 
     def downgrade_to_free(self, user):
@@ -214,7 +238,7 @@ class UserService:
             membership=FREE_TIER,
             subscription_active=None,
             token_used=0,
-            token_limit=FREE_TOKEN_LIMIT,
+            token_limit=Greatest(FREE_TOKEN_LIMIT, F("token_limit") - F("token_used")),
             membership_updated_at=now,
             membership_expires_at=None,
         )
@@ -229,15 +253,25 @@ class UserService:
         """
         Charges tokens against a user's allowance and returns how many remain.
 
-        The increment is done by the database (`token_used = token_used + n`)
-        rather than read-modify-write in Python, because a user can have
-        several requests in flight and Python-side increments silently lose
-        concurrent charges.
+        Affordability and the increment are one conditional database update.
+        Concurrent requests therefore cannot both spend the same remaining
+        allowance.
         """
         if not amount or amount <= 0:
             return UserService.tokens_remaining(user_id)
 
-        User.objects.filter(id=user_id).update(token_used=F("token_used") + amount)
+        updated = User.objects.filter(
+            id=user_id,
+            token_used__lte=F("token_limit") - amount,
+        ).update(token_used=F("token_used") + amount)
+
+        if not updated:
+            if not User.objects.filter(id=user_id).exists():
+                raise User.DoesNotExist(f"User {user_id} does not exist.")
+            raise InsufficientTokensError(
+                f"User {user_id} does not have enough tokens for a charge of {amount}."
+            )
+
         return UserService.tokens_remaining(user_id)
 
     @staticmethod
@@ -257,7 +291,9 @@ class UserService:
         Tokens the user may still spend this period, read straight from the DB
         so it is never a stale in-memory value.
         """
-        row = User.objects.filter(id=user_id).values("token_limit", "token_used").first()
+        row = (
+            User.objects.filter(id=user_id).values("token_limit", "token_used").first()
+        )
         if not row:
             return 0
         return max(0, row["token_limit"] - row["token_used"])
@@ -267,7 +303,9 @@ class UserService:
         Reports a user's allowance. A pure read: refilling is the job of
         `reconcile_membership`, which has already run for this request.
         """
-        user = User.objects.filter(email=email).values("token_used", "token_limit").first()
+        user = (
+            User.objects.filter(email=email).values("token_used", "token_limit").first()
+        )
         if not user:
             return None
         return {"token_used": user["token_used"], "token_limit": user["token_limit"]}

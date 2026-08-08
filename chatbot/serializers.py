@@ -62,46 +62,65 @@ class PreferencesSerializer(serializers.ModelSerializer):
             "compact_mode",
         ]
         read_only_fields = ["id", "user"]
+
+
+class UserProfileUpdateSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150, required=False)
+    preferences = PreferencesSerializer(required=False)
     
-class UserWithPreferencesSerializer(UserSerializer):
-    preferences = PreferencesSerializer()
+    
+class UserResponseSerializer(serializers.ModelSerializer):
+    preferences = PreferencesSerializer(read_only=True)
 
     class Meta:
         model = User
         fields = ["id", "username", "email", "preferences", "membership", "subscription_active", "membership_expires_at"]
-        read_only_fields = ["id", "preferences"]
-    
-    def update(self, instance, validated_data):
-        preferences_data = validated_data.pop('preferences', None)
-
-        print("\n\n\nPreferences data to update:", preferences_data)
-
-        validated_data.pop('email', None)
-
-        for key, value in validated_data.items():
-            setattr(instance, key, value)
-        instance.save()
-
-        if preferences_data:
-            preferences = getattr(instance, 'preferences', None)
-            if preferences:
-                for key, value in preferences_data.items():
-                    setattr(preferences, key, value)
-                preferences.save()
-        
-        return instance
+        read_only_fields = fields
     
 
-class ExerciseSubmissionSerializer(serializers.Serializer):
+class ExerciseFileSubmissionsSerializer(serializers.Serializer):
+    exercise_file_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=True, allow_empty=False
+    )
+    user_submissions = serializers.ListField(
+        child=serializers.CharField(), required=True, allow_empty=False
+    )
+
+    def validate(self, attrs):
+        exercise_file_ids = attrs["exercise_file_ids"]
+        user_submissions = attrs["user_submissions"]
+
+        if len(exercise_file_ids) != len(user_submissions):
+            raise serializers.ValidationError(
+                "exercise_file_ids and user_submissions must have the same length."
+            )
+
+        if len(set(exercise_file_ids)) != len(exercise_file_ids):
+            raise serializers.ValidationError(
+                {"exercise_file_ids": "Exercise file IDs must be unique."}
+            )
+
+        return attrs
+
+
+class ExerciseSubmissionSerializer(ExerciseFileSubmissionsSerializer):
     ability_level = serializers.ChoiceField(
         choices=["beginner", "novice", "junior", "senior"],
         required=True
     )
     message_id = serializers.IntegerField(required=True)
     exercise_id = serializers.IntegerField(required=True)
-    exercise_file_ids = serializers.ListField(child=serializers.IntegerField(), required=True)
-    user_submissions = serializers.ListField(child=serializers.CharField(), required=True)
     
+
+class FeedbackSerializer(serializers.Serializer):
+    """
+    Validates the public feedback form. The email is echoed into a mail
+    subject, so it is checked here rather than trusted as free text.
+    """
+
+    email = serializers.EmailField(required=True)
+    message = serializers.CharField(required=True, allow_blank=False, max_length=5000)
+
 
 class TokenUsageSerializer(serializers.ModelSerializer):
     class Meta:

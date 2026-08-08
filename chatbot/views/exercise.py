@@ -1,12 +1,20 @@
 import json
-from typing import Any
-from ..models import Exercise, Message
-from ..serializers import ExerciseSubmissionSerializer
+import logging
+
+from ..models import Exercise, ExerciseFile, Message
+from ..serializers import (
+    ExerciseFileSubmissionsSerializer,
+    ExerciseSubmissionSerializer,
+)
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.forms.models import model_to_dict
 from ..services.llm import LLMService
+from ..services.user import InsufficientTokensError
+
+
+logger = logging.getLogger(__name__)
 
 
 class ExerciseAPIView(APIView):
@@ -102,69 +110,47 @@ class ExerciseSubmissionAPIView(APIView):
         Evaluate a user's exercise submission.
         """
         input_serializer = ExerciseSubmissionSerializer(data=request.data)
-        if not input_serializer.is_valid():
-            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        input_serializer.is_valid(raise_exception=True)
         validated_data = input_serializer.validated_data
-
-        try:
-            message_obj = Message.objects.get(
-                id=validated_data["message_id"], conversation__user_id=request.user.id
-            )
-            full_message = message_obj.json
-        except Message.DoesNotExist:
-            return Response(
-                {
-                    "error": f"Message with id {validated_data['message_id']} does not exist."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
 
         user_submissions = validated_data["user_submissions"]
         exercise_file_ids = validated_data["exercise_file_ids"]
-
-        if (
-            not user_submissions
-            or not exercise_file_ids
-            or len(user_submissions) != len(exercise_file_ids)
-        ):
-            return Response(
-                {"error": "Invalid input data."}, status=status.HTTP_400_BAD_REQUEST
-            )
 
         llm_service = LLMService(None, request.user.id)
         try:
             response = llm_service.mark_exercise(
                 ability_level=validated_data["ability_level"],
-                message=full_message,
+                message_id=validated_data["message_id"],
                 exercise_id=validated_data["exercise_id"],
-                user_submission=json.dumps(user_submissions),
+                exercise_file_ids=exercise_file_ids,
+                user_submissions=user_submissions,
             )
             if (
                 isinstance(response, dict)
                 and response.get("warning") == "Insufficient tokens"
             ):
                 return Response(response, status=status.HTTP_402_PAYMENT_REQUIRED)
-        except Exception as e:
+        except (Exercise.DoesNotExist, ExerciseFile.DoesNotExist):
             return Response(
-                {"error": f"Failed to mark exercise: {str(e)}"},
+                {"error": "Exercise or exercise files not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except InsufficientTokensError:
+            return Response(
+                {"warning": "Insufficient tokens"},
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to mark exercise %s for user %s",
+                validated_data["exercise_id"],
+                request.user.id,
+            )
+            return Response(
+                {"error": "Failed to mark exercise."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        for i in range(len(user_submissions)):
-            save_result = llm_service.save_user_submission(
-                exercise_file_id=exercise_file_ids[i],
-                user_submission=user_submissions[i],
-                user_id=request.user.id,
-            )
-            if isinstance(save_result, dict) and save_result.get("status") == "error":
-                return Response(
-                    {
-                        "error": f"Failed to save user submission for file id {exercise_file_ids[i]}: {save_result.get('message', '')}"
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-
-        print("LLMService response for marking user data:", response)
         return Response(response, status=status.HTTP_200_OK)
 
 
@@ -177,23 +163,21 @@ class ExerciseSaveAPIView(APIView):
         """
         Save the user's submission for a specific exercise. Expects a list of submissions and corresponding list of exercise file IDs.
         """
-        user_submissions = request.data.get("user_submissions", None)
-        exercise_file_ids = request.data.get("exercise_file_ids", None)
-        if (
-            not user_submissions
-            or not exercise_file_ids
-            or len(user_submissions) != len(exercise_file_ids)
-        ):
-            return Response(
-                {"error": "Invalid input data."}, status=status.HTTP_400_BAD_REQUEST
-            )
+        input_serializer = ExerciseFileSubmissionsSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+
         llm_service = LLMService(None, request.user.id)
-        for i in range(len(user_submissions)):
-            llm_service.save_user_submission(
-                exercise_file_id=exercise_file_ids[i],
-                user_submission=user_submissions[i],
-                user_id=request.user.id,
+        try:
+            llm_service.save_user_submissions(
+                exercise_file_ids=input_serializer.validated_data["exercise_file_ids"],
+                user_submissions=input_serializer.validated_data["user_submissions"],
             )
+        except ExerciseFile.DoesNotExist:
+            return Response(
+                {"error": "One or more exercise files were not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         return Response(
             {"status": "User submissions saved."}, status=status.HTTP_200_OK
         )

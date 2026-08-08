@@ -1,9 +1,11 @@
 import json
 import logging
+import threading
 from datetime import timedelta
 
 from google import genai
 from google.genai import types
+from django.db import transaction
 from django.utils import timezone
 
 from chatbot.models import (
@@ -20,7 +22,12 @@ from chatbot.prompts import (
     exercise_evaluator_prompt,
     exercise_generator_prompt,
 )
-from chatbot.services.user import FREE_TIER, PRO_TIER, UserService
+from chatbot.services.user import (
+    FREE_TIER,
+    PRO_TIER,
+    InsufficientTokensError,
+    UserService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +41,33 @@ class LLMService:
     """
     A service class for processing user inputs and interacting with LLM APIs.
 
-    Uses Gemini's explicit caching for system instructions to reduce token costs.
-    The router and instructor system instructions are cached at the class level
-    and shared across all instances.
+    The router's system instruction is uploaded to Gemini once and referenced by
+    handle on later calls, so we do not resend it with every request.
+
+    NOTE: the instructor is deliberately NOT cached. Grounding (google_search)
+    does not work reliably when baked into a cache, and the instructor writes
+    lessons containing links, so accurate real-time search matters more there
+    than the token saving.
     """
 
-    # Class-level cache references (shared across all instances)
-    # These are created lazily on first use and persist for 24 hours
+    # How long Gemini keeps the uploaded content.
+    CACHE_TTL = timedelta(hours=24)
+    # Replace the handle this long before it expires, so a request that is
+    # already in flight never holds one that dies mid-call.
+    CACHE_REFRESH_MARGIN = timedelta(minutes=30)
+    # After a failed creation, fall back to uncached mode for this long rather
+    # than retrying on every single request.
+    CACHE_FAILURE_BACKOFF = timedelta(minutes=5)
+
+    # Shared by every instance in this process.
     _router_cache = None
-    _instructor_cache = None
-    _cache_initialized = False
+    # The expiry is stored alongside the handle: a handle on its own says
+    # nothing about whether it still works.
+    _router_cache_expires_at = None
+    # Set after a failure so we stop hammering the API.
+    _cache_retry_after = None
+    # Only one request may create a cache; the rest wait and reuse the result.
+    _cache_lock = threading.Lock()
 
     def __init__(self, conversation_id, user_id):
         self.client = genai.Client()
@@ -51,53 +75,147 @@ class LLMService:
         self.conversation_id = conversation_id
         self.user_id = user_id
 
-        # Initialize caches if not already done
-        self._ensure_caches_initialized()
+    @classmethod
+    def _router_cache_is_usable(cls, now):
+        return (
+            cls._router_cache is not None
+            and cls._router_cache_expires_at is not None
+            and now < cls._router_cache_expires_at - cls.CACHE_REFRESH_MARGIN
+        )
 
     @classmethod
-    def _ensure_caches_initialized(cls):
+    def _get_router_cache(cls):
         """
-        Lazily initialize the system instruction caches.
-        This is called once per process and the caches are reused across all requests.
-        """
-        if cls._cache_initialized:
-            return
+        Returns a cache handle we are confident still works, or None meaning
+        "send the full system instruction on this request instead".
 
+        Callers must treat None as normal: the cache is a cost saving, so
+        losing it has to degrade the bill, never the product.
+        """
+        now = timezone.now()
+
+        # Fast path, and the answer almost every time: no lock, no network.
+        if cls._router_cache_is_usable(now):
+            return cls._router_cache
+
+        # Creation failed recently, so don't try again yet.
+        if cls._cache_retry_after and now < cls._cache_retry_after:
+            return None
+
+        with cls._cache_lock:
+            # Re-check inside the lock: while we were waiting, the request
+            # ahead of us has probably already created a fresh cache. Without
+            # this, every concurrent request at startup creates its own.
+            if cls._router_cache_is_usable(now):
+                return cls._router_cache
+
+            try:
+                logger.info("Creating router system instruction cache...")
+                cls._router_cache = genai.Client().caches.create(
+                    model=ROUTER_MODEL,
+                    config=types.CreateCachedContentConfig(
+                        system_instruction=router_system_instruction,
+                        # Tools have to live in the cache; they cannot be passed
+                        # on a request that references cached content.
+                        tools=[types.Tool(google_search=types.GoogleSearch())],
+                        ttl=f"{int(cls.CACHE_TTL.total_seconds())}s",
+                    ),
+                )
+                cls._router_cache_expires_at = now + cls.CACHE_TTL
+                cls._cache_retry_after = None
+                logger.info(
+                    "Router cache %s created, refreshing before %s",
+                    cls._router_cache.name,
+                    cls._router_cache_expires_at - cls.CACHE_REFRESH_MARGIN,
+                )
+            except Exception:
+                logger.exception(
+                    "Router cache creation failed; using uncached mode for %s",
+                    cls.CACHE_FAILURE_BACKOFF,
+                )
+                cls._router_cache = None
+                cls._router_cache_expires_at = None
+                cls._cache_retry_after = now + cls.CACHE_FAILURE_BACKOFF
+
+            return cls._router_cache
+
+    @classmethod
+    def _discard_router_cache(cls):
+        """
+        Forgets the current handle after the API has rejected it, so the next
+        request creates a new one instead of reusing a dead reference.
+        """
+        with cls._cache_lock:
+            cls._router_cache = None
+            cls._router_cache_expires_at = None
+
+    @staticmethod
+    def _is_dead_cache_error(error):
+        """
+        True when the API rejected our cache handle because it no longer
+        exists. Matched on the message because the SDK raises a generic client
+        error rather than a dedicated exception type for this case.
+        """
+        text = str(error).lower()
+        return "cachedcontent" in text or "cached_content" in text
+
+    def _router_config(self, cache):
+        """
+        Request config for the router, with or without a cache handle.
+        """
+        if cache is not None:
+            return types.GenerateContentConfig(
+                cached_content=cache.name,
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(include_thoughts=True),
+            )
+        return types.GenerateContentConfig(
+            system_instruction=router_system_instruction,
+            response_mime_type="application/json",
+            tools=[self.grounding_tool],
+            thinking_config=types.ThinkingConfig(include_thoughts=True),
+        )
+
+    def _stream_router(self, contents):
+        """
+        Streams the router response, transparently retrying without the cache
+        if Gemini rejects the handle.
+
+        Proactive refresh narrows the window but cannot close it: Gemini may
+        drop cached content early. The retry only happens if nothing has been
+        yielded yet, so a mid-stream failure is never replayed as duplicate
+        output.
+        """
+        cache = self._get_router_cache()
+        logger.info(
+            "Router using %s system instruction",
+            "cached" if cache else "inline (uncached)",
+        )
+
+        produced_output = False
         try:
-            client = genai.Client()
-
-            # Define grounding tool for caches
-            grounding_tool = types.Tool(google_search=types.GoogleSearch())
-
-            # Create router cache (includes tools since they can't be in generate request)
-            logger.info("Creating router system instruction cache...")
-            cls._router_cache = client.caches.create(
+            for chunk in self.client.models.generate_content_stream(
                 model=ROUTER_MODEL,
-                config=types.CreateCachedContentConfig(
-                    system_instruction=router_system_instruction,
-                    tools=[grounding_tool],
-                    ttl="86400s",  # 24 hours
-                ),
+                contents=contents,
+                config=self._router_config(cache),
+            ):
+                produced_output = True
+                yield chunk
+            return
+        except Exception as e:
+            if produced_output or cache is None or not self._is_dead_cache_error(e):
+                raise
+            logger.warning(
+                "Router cache %s was rejected by the API; retrying uncached",
+                cache.name,
             )
-            logger.info("Router cache created: %s", cls._router_cache.name)
+            self._discard_router_cache()
 
-            # NOTE: We do NOT cache the instructor because grounding (google_search)
-            # doesn't work reliably when baked into a cache. The instructor generates
-            # lessons with links, so grounding is critical there.
-            # The router cache saves tokens; instructor uses grounding for link quality.
-            cls._instructor_cache = None
-            logger.info(
-                "Instructor cache skipped (grounding requires direct tool access)"
-            )
-
-            cls._cache_initialized = True
-            logger.info("System instruction caches initialized successfully!")
-
-        except Exception:
-            logger.exception(
-                "Failed to initialize caches; falling back to non-cached mode"
-            )
-            cls._cache_initialized = False
+        yield from self.client.models.generate_content_stream(
+            model=ROUTER_MODEL,
+            contents=contents,
+            config=self._router_config(None),
+        )
 
     def _build_instructor_contents(
         self, prepared_context, user_input, experience_level
@@ -136,12 +254,12 @@ class LLMService:
 
             """
 
-            contents += f"""=== CURRENT REQUEST ===
+        contents += f"""=== CURRENT REQUEST ===
 
-            ABILITY LEVEL: {experience_level}
+        ABILITY LEVEL: {experience_level}
 
-            USER'S MESSAGE:
-            {user_input}
+        USER'S MESSAGE:
+        {user_input}
         """
 
         return contents
@@ -201,31 +319,11 @@ class LLMService:
 
         router_response_text = ""
         final_router_token_count = 0
-        # Build router config - use cache if available
-        # Note: When using cached_content, tools must be in the cache (not here)
-        if self._router_cache:
-            router_config = types.GenerateContentConfig(
-                cached_content=self._router_cache.name,
-                response_mime_type="application/json",
-                thinking_config=types.ThinkingConfig(include_thoughts=True),
-            )
-            logger.info("Using cached router system instruction")
-        else:
-            # Fallback: include system_instruction and tools directly
-            router_config = types.GenerateContentConfig(
-                system_instruction=router_system_instruction,
-                response_mime_type="application/json",
-                tools=[self.grounding_tool],
-                thinking_config=types.ThinkingConfig(include_thoughts=True),
-            )
-            logger.info("Using non-cached router system instruction (fallback)")
 
-        # Stream the router response
-        for chunk in self.client.models.generate_content_stream(
-            model=ROUTER_MODEL,
-            contents=raw_history,  # Full history as contents
-            config=router_config,
-        ):
+        # Stream the router response. _stream_router picks up a live cache
+        # handle (or falls back to the full instruction) and retries on its own
+        # if the handle turns out to be dead.
+        for chunk in self._stream_router(raw_history):
             if chunk.usage_metadata and chunk.usage_metadata.total_token_count:
                 final_router_token_count = chunk.usage_metadata.total_token_count
                 logger.debug(
@@ -250,9 +348,13 @@ class LLMService:
                         # This is the actual response - accumulate it
                         router_response_text += part.text
 
-        tokens_remaining = UserService.consume_tokens(
-            self.user_id, final_router_token_count
-        )
+        try:
+            tokens_remaining = UserService.consume_tokens(
+                self.user_id, final_router_token_count
+            )
+        except InsufficientTokensError:
+            yield {"stage": "error", "data": "Insufficient tokens"}
+            return
         logger.info(
             "Router used %s tokens for user %s", final_router_token_count, self.user_id
         )
@@ -302,25 +404,14 @@ class LLMService:
             instructor_response_thought = ""
             final_instructor_token_count = 0
 
-            # Build instructor config
-            # Note: Instructor is NOT cached because grounding doesn't work reliably in caches
-            # This ensures links in lessons are accurate via real-time Google Search
-            if self._instructor_cache:
-                instructor_config = types.GenerateContentConfig(
-                    cached_content=self._instructor_cache.name,
-                    response_mime_type="application/json",
-                    thinking_config=types.ThinkingConfig(include_thoughts=True),
-                )
-                logger.info("Using cached instructor system instruction")
-            else:
-                # Use grounding tool for accurate, up-to-date links
-                instructor_config = types.GenerateContentConfig(
-                    system_instruction=instructor_system_instruction,
-                    response_mime_type="application/json",
-                    tools=[self.grounding_tool],
-                    thinking_config=types.ThinkingConfig(include_thoughts=True),
-                )
-                logger.info("Using instructor with grounding (not cached)")
+            # The instructor is never cached (see the class docstring): it needs
+            # the grounding tool passed directly so its lesson links are real.
+            instructor_config = types.GenerateContentConfig(
+                system_instruction=instructor_system_instruction,
+                response_mime_type="application/json",
+                tools=[self.grounding_tool],
+                thinking_config=types.ThinkingConfig(include_thoughts=True),
+            )
 
             # Stream the instructor response
             for chunk in self.client.models.generate_content_stream(
@@ -354,9 +445,13 @@ class LLMService:
                             # Accumulate the JSON response
                             instructor_response_text += part.text
 
-            tokens_remaining = UserService.consume_tokens(
-                self.user_id, final_instructor_token_count
-            )
+            try:
+                tokens_remaining = UserService.consume_tokens(
+                    self.user_id, final_instructor_token_count
+                )
+            except InsufficientTokensError:
+                yield {"stage": "error", "data": "Insufficient tokens"}
+                return
             logger.info(
                 "Instructor used %s tokens for user %s",
                 final_instructor_token_count,
@@ -463,9 +558,20 @@ class LLMService:
 
         return formatted_history
 
-    def mark_exercise(self, ability_level, message, exercise_id, user_submission, user_id):
+    def mark_exercise(
+        self,
+        ability_level,
+        message_id,
+        exercise_id,
+        exercise_file_ids,
+        user_submissions,
+    ):
         """
-        Gives feedback for a particular coding exercise when the user submits it.
+        Evaluates and saves a user's submissions for one of their exercises.
+
+        The message, exercise, and files are checked as one ownership chain
+        before the billable LLM call. Once the call succeeds, feedback, token
+        accounting, and all file submissions are persisted atomically.
         """
         user = User.objects.get(id=self.user_id)
         explain = True
@@ -486,16 +592,37 @@ class LLMService:
                 )
                 user.save(update_fields=["free_feedback_for_exercises_refresh_at"])
 
-        exercise = Exercise.objects.get(id=exercise_id, converation__message__user_id=user_id)
+        exercise = (
+            Exercise.objects.select_related("message")
+            .prefetch_related("files")
+            .get(
+                id=exercise_id,
+                message_id=message_id,
+                message__conversation__user_id=self.user_id,
+            )
+        )
+        files_by_id = {exercise_file.id: exercise_file for exercise_file in exercise.files.all()}
+        if any(file_id not in files_by_id for file_id in exercise_file_ids):
+            raise ExerciseFile.DoesNotExist(
+                "One or more exercise files do not belong to this exercise."
+            )
+
         original_exercise = json.dumps(
-            list(exercise.files.values("filename", "text", "code"))
+            [
+                {
+                    "filename": exercise_file.filename,
+                    "text": exercise_file.text,
+                    "code": exercise_file.code,
+                }
+                for exercise_file in files_by_id.values()
+            ]
         )
         prompt = exercise_evaluator_prompt.format(
             ability_level=ability_level,
             explain=explain,
-            message=message,
+            message=json.dumps(exercise.message.json),
             original_exercise=original_exercise,
-            user_submission=user_submission,
+            user_submission=json.dumps(user_submissions),
         )
 
         if not self.has_enough_tokens(self.user_id, prompt):
@@ -514,24 +641,48 @@ class LLMService:
         logger.info(
             "Exercise evaluation used %s tokens for user %s", tokens_used, self.user_id
         )
-        tokens_remaining = UserService.consume_tokens(self.user_id, tokens_used)
-
-        TokenUsage.objects.create(
-            user_id=self.user_id,
-            token_used=tokens_used,
-            tokens_remaining=tokens_remaining,
-            action="exercise_evaluator",
-        )
 
         logger.info("Exercise Evaluator response text: %s", response.text)
         response_json = json.loads(response.text, strict=False)
-        exercise.feedback = response_json
-        exercise.save(update_fields=["feedback"])
-        exercise.correctness = response_json.get("correctness")
-        logger.info("Updating exercise correctness to: %s", exercise.correctness)
-        exercise.save(update_fields=["correctness"])
-        logger.info("Exercise correctness updated.")
-        return response.text
+
+        with transaction.atomic():
+            locked_exercise = Exercise.objects.select_for_update().get(
+                id=exercise_id,
+                message_id=message_id,
+                message__conversation__user_id=self.user_id,
+            )
+            submission_files = list(
+                ExerciseFile.objects.select_for_update().filter(
+                    id__in=exercise_file_ids,
+                    exercise_id=locked_exercise.id,
+                )
+            )
+            if len(submission_files) != len(exercise_file_ids):
+                raise ExerciseFile.DoesNotExist(
+                    "One or more exercise files do not belong to this exercise."
+                )
+
+            submissions_by_file_id = dict(zip(exercise_file_ids, user_submissions))
+            for exercise_file in submission_files:
+                exercise_file.user_submission = submissions_by_file_id[exercise_file.id]
+
+            locked_exercise.feedback = response_json
+            locked_exercise.correctness = response_json.get("correctness")
+            locked_exercise.save(update_fields=["feedback", "correctness"])
+            ExerciseFile.objects.bulk_update(
+                submission_files, ["user_submission"]
+            )
+
+            tokens_remaining = UserService.consume_tokens(self.user_id, tokens_used)
+            TokenUsage.objects.create(
+                user_id=self.user_id,
+                token_used=tokens_used,
+                tokens_remaining=tokens_remaining,
+                action="exercise_evaluator",
+            )
+
+        logger.info("Exercise %s evaluation saved.", exercise_id)
+        return response_json
 
     def generate_exercise(self, ability_level, message, exercise_files_text):
         """
@@ -560,7 +711,11 @@ class LLMService:
         logger.info(
             "Exercise generation used %s tokens for user %s", tokens_used, self.user_id
         )
-        tokens_remaining = UserService.consume_tokens(self.user_id, tokens_used)
+        try:
+            json.loads(response.text, strict=False)
+            tokens_remaining = UserService.consume_tokens(self.user_id, tokens_used)
+        except InsufficientTokensError:
+            return {"warning": "Insufficient tokens"}
 
         TokenUsage.objects.create(
             user_id=self.user_id,
@@ -595,23 +750,43 @@ class LLMService:
             logger.info("JSON decoding error during exercise generation: %s", e)
             raise e
 
-    def save_user_submission(self, exercise_file_id, user_submission, user_id):
+    def save_user_submissions(
+        self, exercise_file_ids, user_submissions, exercise_id=None
+    ):
         """
-        Saves the user's submission for a specific exercise file.
+        Atomically saves submissions for exercise files owned by this user.
         """
-        try:
-            exercise_file = ExerciseFile.objects.get(
-                id=exercise_file_id, message__conversation__user_id=user_id
+        if (
+            len(exercise_file_ids) != len(user_submissions)
+            or len(set(exercise_file_ids)) != len(exercise_file_ids)
+        ):
+            raise ValueError(
+                "Exercise file IDs must be unique and match the submissions."
             )
-            exercise_file.user_submission = user_submission
-            exercise_file.save(update_fields=["user_submission"])
-            logger.info(
-                "User submission saved for ExerciseFile ID: %s", exercise_file_id
+
+        with transaction.atomic():
+            files_query = ExerciseFile.objects.select_for_update().filter(
+                id__in=exercise_file_ids,
+                exercise__message__conversation__user_id=self.user_id,
             )
-            return {"status": "success"}
-        except ExerciseFile.DoesNotExist:
-            logger.info("ExerciseFile not found for ID: %s", exercise_file_id)
-            return {"status": "error", "message": "Exercise file not found."}
+            if exercise_id is not None:
+                files_query = files_query.filter(exercise_id=exercise_id)
+
+            exercise_files = list(files_query)
+            if len(exercise_files) != len(exercise_file_ids):
+                raise ExerciseFile.DoesNotExist(
+                    "One or more exercise files were not found."
+                )
+
+            submissions_by_file_id = dict(zip(exercise_file_ids, user_submissions))
+            for exercise_file in exercise_files:
+                exercise_file.user_submission = submissions_by_file_id[exercise_file.id]
+
+            ExerciseFile.objects.bulk_update(
+                exercise_files, ["user_submission"]
+            )
+
+        logger.info("Saved submissions for %s exercise files.", len(exercise_files))
 
     def exercise_count_limit_reached(self, user_id, message_id):
         """

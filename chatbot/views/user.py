@@ -5,7 +5,7 @@ from rest_framework import status
 from ..models import User
 from ..services.user import UserService
 
-from ..serializers import UserSerializer, UserWithPreferencesSerializer
+from ..serializers import UserProfileUpdateSerializer, UserResponseSerializer, UserSerializer
 
 
 class UserWithPreferencesAPIView(APIView):
@@ -28,13 +28,12 @@ class UserWithPreferencesAPIView(APIView):
         if not user:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        output_serializer = UserWithPreferencesSerializer(user)
+        output_serializer = UserResponseSerializer(user)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
         input_serializer = UserSerializer(data=request.data)
-        if not input_serializer.is_valid():
-            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        input_serializer.is_valid(raise_exception=True)
 
         validated_data = input_serializer.validated_data
         try:
@@ -47,7 +46,7 @@ class UserWithPreferencesAPIView(APIView):
             return Response({"error": str(ve)}, status=status.HTTP_400_BAD_REQUEST)
 
         user_with_preferences = User.objects.select_related("preferences").get(id=user.id)
-        output_serializer = UserWithPreferencesSerializer(user_with_preferences)
+        output_serializer = UserResponseSerializer(user_with_preferences)
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
     def put(self, request, email):
@@ -55,14 +54,15 @@ class UserWithPreferencesAPIView(APIView):
         if not user_instance:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        input_serializer = UserWithPreferencesSerializer(
-            instance=user_instance,
+        input_serializer = UserProfileUpdateSerializer(
             data=request.data,
             partial=True,  # Allow partial updates
         )
-        if not input_serializer.is_valid():
-            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        input_serializer.is_valid(raise_exception=True)
 
-        updated_user = input_serializer.save()
-        output_serializer = UserWithPreferencesSerializer(updated_user)
-        return Response(output_serializer.data, status=status.HTTP_200_OK)
+        updated_user = self.service.update_profile(
+            user=user_instance,
+            username=input_serializer.validated_data.get("username"),
+            preferences=input_serializer.validated_data.get("preferences"),
+        )
+        return Response(UserResponseSerializer(updated_user).data, status=status.HTTP_200_OK)
