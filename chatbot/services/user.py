@@ -288,7 +288,7 @@ class UserService:
     @staticmethod
     def tokens_remaining(user_id):
         """
-        Tokens the user may still spend this period, read straight from the DB
+        For tokens the user may still spend this period, read straight from the DB
         so it is never a stale in-memory value.
         """
         row = (
