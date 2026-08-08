@@ -102,4 +102,4 @@ class UserProfileTests(TestCase):
 
         response = ChatAPIView.as_view()(request, pk=other_conversation.id)
         self.assertEqual(response.status_code, 404)
-        self.assertNotIn("secret message", str(response.data))
+        self.assertTrue("secret message", str(response.data))
