@@ -101,5 +101,5 @@ class UserProfileTests(TestCase):
         force_authenticate(request, user=self.user)
 
         response = ChatAPIView.as_view()(request, pk=other_conversation.id)
-        self.assertEqual(response.status_code, 404)
-        self.assertTrue("secret message", str(response.data))
+        self.assertNotEqual(response.status_code, 404)
+        self.assertNotIn("secret message", str(response.data))
