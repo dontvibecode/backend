@@ -2,6 +2,7 @@ import json
 import logging
 import threading
 from datetime import timedelta
+from pydantic import BaseModel, Field, ValidationError
 
 from google import genai
 from google.genai import types
@@ -35,6 +36,18 @@ logger = logging.getLogger(__name__)
 ROUTER_MODEL = "gemini-3.1-flash-lite-preview"
 # Expensive model that writes lessons and exercises.
 INSTRUCTOR_MODEL = "gemini-3.1-pro-preview"
+
+
+class ExerciseFile(BaseModel):
+    filename: str
+    text: str
+    code: str
+
+
+class ExerciseGeneration(BaseModel):
+    exercise_title: str
+    exercise_tags: list[str] = Field(min_length=2, max_length=5)
+    exercises: list[ExerciseFile] = Field(min_length=1, max_length=1)  # prompt says exactly one
 
 
 class LLMService:
@@ -712,7 +725,7 @@ class LLMService:
             "Exercise generation used %s tokens for user %s", tokens_used, self.user_id
         )
         try:
-            json.loads(response.text, strict=False)
+            ExerciseGeneration.model_validate_json(response.text)
             tokens_remaining = UserService.consume_tokens(self.user_id, tokens_used)
         except InsufficientTokensError:
             return {"warning": "Insufficient tokens"}

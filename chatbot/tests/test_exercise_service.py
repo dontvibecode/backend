@@ -3,9 +3,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase
+from pydantic import ValidationError
 from rest_framework import serializers
 from rest_framework.test import APIRequestFactory, force_authenticate
 
+from chatbot.services.user import InsufficientTokensError
 from chatbot.models import (
     Conversation,
     Exercise,
@@ -246,19 +248,19 @@ class ExerciseServiceTests(TestCase):
 
     def test_no_token_loss_when_exercise_json_is_invalid(self):
         service, _ = self.make_service()
-        invalid_json_response = SimpleNamespace(
+        incomplete_json_response = SimpleNamespace(
             text="Invalid JSON",
             usage_metadata=SimpleNamespace(total_token_count=100),
         )
 
-        service.client.models.generate_content.return_value = invalid_json_response
+        service.client.models.generate_content.return_value = incomplete_json_response
 
         previous_token_used = self.user.token_used
         usage_count_before = TokenUsage.objects.count()
         exercise_count_before = Exercise.objects.count()
 
         with patch.object(service, "has_enough_tokens", return_value=True):
-            with self.assertRaises(json.JSONDecodeError):
+            with self.assertRaises(ValidationError):
                 service.generate_exercise(
                     ability_level="beginner",
                     message=self.message,
@@ -269,3 +271,66 @@ class ExerciseServiceTests(TestCase):
         self.assertEqual(self.user.token_used, previous_token_used)
         self.assertEqual(TokenUsage.objects.count(), usage_count_before)
         self.assertEqual(Exercise.objects.count(), exercise_count_before)
+
+    def test_no_token_loss_when_exercise_json_has_invalid_shape(self):
+        service, _ = self.make_service()
+        incomplete_json_response = SimpleNamespace(
+            text="""
+                {
+                    "exercise_title": "Incomplete exercise",
+                    "exercise_tags": []
+                }
+            """,
+            usage_metadata=SimpleNamespace(total_token_count=100),
+        )
+        service.client.models.generate_content.return_value = incomplete_json_response
+
+        previous_token_used = self.user.token_used
+        usage_count_before = TokenUsage.objects.count()
+        exercise_count_before = Exercise.objects.count()
+
+        with patch.object(service, "has_enough_tokens", return_value=True):
+            with self.assertRaises(ValidationError):
+                service.generate_exercise(
+                    ability_level="beginner",
+                    message=self.message,
+                    exercise_files_text="[]",
+                )
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.token_used, previous_token_used)
+        self.assertEqual(TokenUsage.objects.count(), usage_count_before)
+        self.assertEqual(Exercise.objects.count(), exercise_count_before)
+
+    def test_evaluation_rolls_back_if_token_charge_fails(self):
+        service, response_data = self.make_service()
+        previous_token_used = self.user.token_used
+        usage_count_before = TokenUsage.objects.count()
+
+        with (
+            patch.object(service, "has_enough_tokens", return_value=True),
+            patch(
+                "chatbot.services.llm.UserService.consume_tokens",
+                side_effect=InsufficientTokensError,
+            ),
+        ):
+            with self.assertRaises(InsufficientTokensError):
+                service.mark_exercise(
+                    ability_level="beginner",
+                    message_id=self.message.id,
+                    exercise_id=self.exercise.id,
+                    exercise_file_ids=[self.first_file.id, self.second_file.id],
+                    user_submissions=["print('first')", "print('second')"],
+                )
+
+        self.user.refresh_from_db()
+        self.exercise.refresh_from_db()
+        self.first_file.refresh_from_db()
+        self.second_file.refresh_from_db()
+        
+        self.assertEqual(self.user.token_used, previous_token_used)
+        self.assertEqual(TokenUsage.objects.count(), usage_count_before)
+        self.assertIsNone(self.exercise.feedback)
+        self.assertIsNone(self.exercise.correctness)
+        self.assertIsNone(self.first_file.user_submission)
+        self.assertIsNone(self.second_file.user_submission)
