@@ -42,7 +42,7 @@ def env_list(name, default):
 
 ALLOWED_HOSTS = env_list(
     "ALLOWED_HOSTS",
-    ["localhost", "127.0.0.1", ".koyeb.app"],
+    ["localhost", "127.0.0.1", "dontvibecode-backend.onrender.com"],
 )
 
 # Application definition
