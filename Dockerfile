@@ -24,5 +24,5 @@ COPY . .
 # Collect static files
 RUN SECRET_KEY=build-time-dummy-key python manage.py collectstatic --noinput
 
-# Run gunicorn (Cloud Run sets $PORT automatically)
+# PaaS hosts (Koyeb, Render, etc.) inject $PORT.
 CMD exec gunicorn --bind :$PORT --timeout 120 --worker-class gevent --worker-connections 1000 api.wsgi

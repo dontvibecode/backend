@@ -8,4 +8,6 @@ __pycache__
 cloud-sql-proxy.exe
 .gcloudignore
 app.yaml
+env.yaml
+cloudrun-env.yaml
 *.json

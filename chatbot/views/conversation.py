@@ -14,8 +14,8 @@ class ConversationAPIView(APIView):
     API endpoint for managing conversations.
     """
 
-    def get(self, request: Request, email):
-        conversations = Conversation.objects.filter(user__email=request.user.email).annotate(
+    def get(self, request: Request):
+        conversations = Conversation.objects.filter(user_id=request.user.id).annotate(
             exercises_count=Count('message__exercises'),
             exercises_almost_count=Count('message__exercises', filter=Q(message__exercises__correctness=1)),
             exercises_correct_count=Count('message__exercises', filter=Q(message__exercises__correctness=2)),

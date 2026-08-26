@@ -1,8 +1,9 @@
 import json
 import logging
+import os
 import threading
 from datetime import timedelta
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from google import genai
 from google.genai import types
@@ -32,13 +33,13 @@ from chatbot.services.user import (
 
 logger = logging.getLogger(__name__)
 
-# Cheap model that classifies the request and answers simple turns itself.
-ROUTER_MODEL = "gemini-3.1-flash-lite-preview"
-# Expensive model that writes lessons and exercises.
-INSTRUCTOR_MODEL = "gemini-3.1-pro-preview"
+# Both defaults are available on the Gemini Developer API free tier. Keep them
+# configurable so model retirements do not require a code deployment.
+ROUTER_MODEL = os.getenv("GEMINI_ROUTER_MODEL", "gemini-3.6-flash")
+INSTRUCTOR_MODEL = os.getenv("GEMINI_INSTRUCTOR_MODEL", "gemini-3.6-flash")
 
 
-class ExerciseFile(BaseModel):
+class ExerciseFilePayload(BaseModel):
     filename: str
     text: str
     code: str
@@ -47,20 +48,19 @@ class ExerciseFile(BaseModel):
 class ExerciseGeneration(BaseModel):
     exercise_title: str
     exercise_tags: list[str] = Field(min_length=2, max_length=5)
-    exercises: list[ExerciseFile] = Field(min_length=1, max_length=1)  # prompt says exactly one
+    exercises: list[ExerciseFilePayload] = Field(
+        min_length=1, max_length=1
+    )  # prompt says exactly one
 
 
 class LLMService:
     """
     A service class for processing user inputs and interacting with LLM APIs.
 
-    The router's system instruction is uploaded to Gemini once and referenced by
-    handle on later calls, so we do not resend it with every request.
-
-    NOTE: the instructor is deliberately NOT cached. Grounding (google_search)
-    does not work reliably when baked into a cache, and the instructor writes
-    lessons containing links, so accurate real-time search matters more there
-    than the token saving.
+    The router's long, static instruction is cached when Gemini allows it, to
+    reduce repeated input tokens. The instructor stays inline because its
+    request context changes. Google Search grounding is not used: it is a
+    paid-tier Gemini feature, and this app stays on the free Developer API.
     """
 
     # How long Gemini keeps the uploaded content.
@@ -84,7 +84,6 @@ class LLMService:
 
     def __init__(self, conversation_id, user_id):
         self.client = genai.Client()
-        self.grounding_tool = types.Tool(google_search=types.GoogleSearch())
         self.conversation_id = conversation_id
         self.user_id = user_id
 
@@ -128,9 +127,6 @@ class LLMService:
                     model=ROUTER_MODEL,
                     config=types.CreateCachedContentConfig(
                         system_instruction=router_system_instruction,
-                        # Tools have to live in the cache; they cannot be passed
-                        # on a request that references cached content.
-                        tools=[types.Tool(google_search=types.GoogleSearch())],
                         ttl=f"{int(cls.CACHE_TTL.total_seconds())}s",
                     ),
                 )
@@ -185,7 +181,6 @@ class LLMService:
         return types.GenerateContentConfig(
             system_instruction=router_system_instruction,
             response_mime_type="application/json",
-            tools=[self.grounding_tool],
             thinking_config=types.ThinkingConfig(include_thoughts=True),
         )
 
@@ -417,12 +412,9 @@ class LLMService:
             instructor_response_thought = ""
             final_instructor_token_count = 0
 
-            # The instructor is never cached (see the class docstring): it needs
-            # the grounding tool passed directly so its lesson links are real.
             instructor_config = types.GenerateContentConfig(
                 system_instruction=instructor_system_instruction,
                 response_mime_type="application/json",
-                tools=[self.grounding_tool],
                 thinking_config=types.ThinkingConfig(include_thoughts=True),
             )
 
@@ -646,7 +638,7 @@ class LLMService:
             model=INSTRUCTOR_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
-                response_mime_type="application/json", tools=[self.grounding_tool]
+                response_mime_type="application/json"
             ),
         )
 
@@ -716,7 +708,7 @@ class LLMService:
             model=INSTRUCTOR_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
-                response_mime_type="application/json", tools=[self.grounding_tool]
+                response_mime_type="application/json"
             ),
         )
 

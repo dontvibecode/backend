@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
-from ..services.storage import GCSService
+from ..services.storage import ObjectStorageService
 from ..services.user import UserService
 
 
@@ -10,7 +10,7 @@ class ProfileImageUploadURLView(APIView):
     """Generate a signed URL for profile image upload."""
     
     def __init__(self):
-        self.gcs_service = GCSService()
+        self.storage_service = ObjectStorageService()
         self.user_service = UserService()
     
     def post(self, request):
@@ -42,7 +42,7 @@ class ProfileImageUploadURLView(APIView):
             )
         
         try:
-            result = self.gcs_service.generate_upload_signed_url(
+            result = self.storage_service.generate_upload_signed_url(
                 user_id=user.id,
                 content_type=content_type
             )
@@ -64,13 +64,13 @@ class ProfileImageConfirmView(APIView):
     """Confirm upload and update user profile with new image URL."""
     
     def __init__(self):
-        self.gcs_service = GCSService()
+        self.storage_service = ObjectStorageService()
         self.user_service = UserService()
     
     def post(self, request):
         """
-        Called after successful upload to GCS.
-        Request body: { "public_url": "https://storage.googleapis.com/..." }
+        Called after a successful direct upload to object storage.
+        Request body: { "public_url": "https://<public-r2-host>/..." }
         """
         public_url = request.data.get("public_url")
         
@@ -95,12 +95,17 @@ class ProfileImageConfirmView(APIView):
             )
         
         try:
+            if not self.storage_service.is_managed_profile_url(public_url, user.id):
+                return Response(
+                    {"error": "Invalid profile image URL"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             # Delete old image if exists
             old_url = user.preferences.profile_image
-            print(f"old_url: {old_url}")
             if old_url:
-                self.gcs_service.delete_old_profile_image(old_url)
-            print(f"public_url: {public_url}")
+                self.storage_service.delete_old_profile_image(old_url)
+
             # Update preferences with new URL
             user.preferences.profile_image = public_url
             user.preferences.save()

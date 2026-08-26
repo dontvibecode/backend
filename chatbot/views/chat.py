@@ -8,7 +8,7 @@ from rest_framework import status
 from ..models import Conversation
 from ..services.conversation import ConversationService
 from ..services.llm import LLMService
-from ..serializers import MessageSerializer
+from ..serializers import ChatStreamRequestSerializer, MessageSerializer
 
 
 class ChatAPIView(APIView):
@@ -40,7 +40,7 @@ class ChatStreamAPIView(APIView):
         Handle POST requests for streaming chat responses.
         """
         # Validate input
-        input_serializer = MessageSerializer(
+        input_serializer = ChatStreamRequestSerializer(
             data=request.data, context={"request": request}
         )
         if not input_serializer.is_valid():

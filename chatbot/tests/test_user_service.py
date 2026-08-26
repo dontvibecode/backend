@@ -36,7 +36,7 @@ class UserProfileTests(TestCase):
 
     def test_profile_endpoint_updates_nested_preferences_not_membership(self):
         request = APIRequestFactory().put(
-            "/user/profile@example.com/",
+            "/user/",
             {
                 "username": "updated-name",
                 "membership": "pro",
@@ -50,9 +50,7 @@ class UserProfileTests(TestCase):
         self.user.is_authenticated = True
         force_authenticate(request, user=self.user)
 
-        response = UserWithPreferencesAPIView.as_view()(
-            request, email=self.user.email
-        )
+        response = UserWithPreferencesAPIView.as_view()(request)
 
         self.user.refresh_from_db()
         self.user.preferences.refresh_from_db()

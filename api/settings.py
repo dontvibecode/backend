@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from dotenv import load_dotenv
 import os
+from urllib.parse import parse_qsl, unquote, urlparse
 
 load_dotenv()
 
@@ -30,13 +31,19 @@ SECRET_KEY = os.getenv("SECRET_KEY", "")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-    "dontvibecode-api.onrender.com",
-    "dontvibecode.uc.r.appspot.com",
-    ".run.app",
-]
+
+def env_list(name, default):
+    return [
+        value.strip()
+        for value in os.getenv(name, ",".join(default)).split(",")
+        if value.strip()
+    ]
+
+
+ALLOWED_HOSTS = env_list(
+    "ALLOWED_HOSTS",
+    ["localhost", "127.0.0.1", ".koyeb.app"],
+)
 
 # Application definition
 
@@ -82,7 +89,7 @@ TEMPLATES = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "chatbot.authentication.GoogleIDTokenAuthentication",
+        "chatbot.authentication.GoogleIDTokenAuthentication",  # Google Sign-In ID tokens, not GCP infrastructure
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -94,10 +101,9 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "feedback": "3/day",
     },
-    # How many proxies sit in front of Django, used to pick the caller's real
-    # address out of X-Forwarded-For. Cloud Run puts one front end in front of
-    # us. If this number is wrong the throttle key becomes client-controlled
-    # and the limit is trivially bypassed, so verify it against a real request
+    # How many trusted reverse proxies sit in front of Django. If this number
+    # is wrong the throttle key becomes client-controlled and the limit is
+    # trivially bypassed, so verify it against a real request
     # (log request.META["HTTP_X_FORWARDED_FOR"]) if the deployment changes.
     "NUM_PROXIES": int(os.getenv("NUM_PROXIES", "1")),
 }
@@ -116,9 +122,23 @@ CACHES = {
 
 WSGI_APPLICATION = "api.wsgi.application"
 
-CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "https://dontvibecode.com"]
+CORS_ALLOWED_ORIGINS = env_list(
+    "CORS_ALLOWED_ORIGINS",
+    [
+        "http://localhost:3000",
+        "https://dontvibecode.com",
+        "https://www.dontvibecode.com",
+    ],
+)
 
-CSRF_TRUSTED_ORIGINS = ["http://localhost:3000", "https://dontvibecode.com"]
+CSRF_TRUSTED_ORIGINS = env_list(
+    "CSRF_TRUSTED_ORIGINS",
+    [
+        "http://localhost:3000",
+        "https://dontvibecode.com",
+        "https://www.dontvibecode.com",
+    ],
+)
 
 CORS_ALLOW_HEADERS = [
     "content-type",
@@ -128,17 +148,52 @@ CORS_ALLOW_HEADERS = [
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+#
+# The app uses Neon via DATABASE_URL (local and production). The discrete
+# DB_* variables exist so GitHub Actions can point at its disposable
+# Postgres container without constructing a URL.
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME"),
-        "USER": os.getenv("DB_USER"),
-        "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+database_url = os.getenv("DATABASE_URL")
+if database_url:
+    parsed_database_url = urlparse(database_url)
+    if parsed_database_url.scheme not in {"postgres", "postgresql"}:
+        raise ValueError("DATABASE_URL must use the postgres or postgresql scheme.")
+
+    database_options = dict(parse_qsl(parsed_database_url.query))
+    database_options.setdefault("sslmode", "require")
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": unquote(parsed_database_url.path.lstrip("/")),
+            "USER": unquote(parsed_database_url.username or ""),
+            "PASSWORD": unquote(parsed_database_url.password or ""),
+            "HOST": parsed_database_url.hostname or "",
+            "PORT": str(parsed_database_url.port or 5432),
+            "OPTIONS": database_options,
+            "CONN_MAX_AGE": 0,
+            "CONN_HEALTH_CHECKS": True,
+        }
     }
-}
+else:
+    db_host = os.getenv("DB_HOST", "localhost")
+    db_sslmode = os.getenv("DB_SSLMODE")
+    if db_sslmode is None:
+        db_sslmode = (
+            "disable" if db_host in ("localhost", "127.0.0.1") else "require"
+        )
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("DB_NAME"),
+            "USER": os.getenv("DB_USER"),
+            "PASSWORD": os.getenv("DB_PASSWORD"),
+            "HOST": db_host,
+            "PORT": os.getenv("DB_PORT", "5432"),
+            "OPTIONS": {"sslmode": db_sslmode},
+        }
+    }
 
 
 # Password validation
@@ -185,7 +240,7 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Logging: our own loggers need an explicit handler, otherwise anything logged
-# outside the `django` namespace is dropped instead of reaching Cloud Run.
+# outside the `django` namespace is dropped instead of reaching the host logs.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -205,7 +260,12 @@ LOGGING = {
     },
 }
 
-BUCKET_NAME = os.getenv("BUCKET_NAME", None)
+# Cloudflare R2 (S3-compatible). Profile pictures only.
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID")
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "profile-images")
+R2_PUBLIC_BASE_URL = os.getenv("R2_PUBLIC_BASE_URL")
 
 # Stripe
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
@@ -214,7 +274,8 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRO_MEMBERSHIP_PRICE_ID = os.getenv("STRIPE_PRO_MEMBERSHIP_PRICE_ID")
 STRIPE_TOKEN_PACK_200K_PRICE_ID = os.getenv("STRIPE_TOKEN_PACK_200K_PRICE_ID")
 
-# Email (SMTP)
+# Email (SMTP). Used only by the public feedback form. Missing values do not
+# break startup; they make send_mail fail the first time someone submits it.
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))

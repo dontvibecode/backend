@@ -1,63 +1,49 @@
-import google.auth
-from google.cloud import storage
-from google.auth.transport.requests import Request
-from google.oauth2 import service_account
+import logging
 import uuid
-from datetime import timedelta
-from api.settings import BUCKET_NAME
+from urllib.parse import quote, unquote
+
+import boto3
+from botocore.config import Config
+from django.conf import settings
 
 
-IAM_SIGNING_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+logger = logging.getLogger(__name__)
 
 
-class GCSService:
-    """Service for generating signed URLs for GCP Cloud Storage uploads."""
-    
+class ObjectStorageService:
+    """Cloudflare R2 adapter using its S3-compatible API."""
+
     ALLOWED_CONTENT_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
-    
+
     def __init__(self):
-        self.client = storage.Client()
-        self.credentials = self.client._credentials
-        self.signing_credentials, _ = google.auth.default(scopes=IAM_SIGNING_SCOPES)
-        self.bucket = self.client.bucket(BUCKET_NAME)
-
-    def _get_signed_url_kwargs(self) -> dict:
-        """
-        Local development commonly uses a service account JSON key file, which
-        contains a private key and can sign URLs directly.
-
-        Cloud Run usually uses token-based runtime credentials with no private
-        key. In that case we pass the access token + service account email so
-        the storage library uses IAM SignBlob instead of local signing.
-        """
-        if isinstance(self.credentials, service_account.Credentials):
-            return {}
-
-        auth_request = Request()
-        self.signing_credentials.refresh(auth_request)
-
-        service_account_email = getattr(
-            self.signing_credentials, "service_account_email", None
-        )
-        access_token = getattr(self.signing_credentials, "token", None)
-
-        if not service_account_email or not access_token:
+        required_settings = {
+            "R2_ACCOUNT_ID": settings.R2_ACCOUNT_ID,
+            "R2_ACCESS_KEY_ID": settings.R2_ACCESS_KEY_ID,
+            "R2_SECRET_ACCESS_KEY": settings.R2_SECRET_ACCESS_KEY,
+            "R2_PUBLIC_BASE_URL": settings.R2_PUBLIC_BASE_URL,
+        }
+        missing = [name for name, value in required_settings.items() if not value]
+        if missing:
             raise RuntimeError(
-                "Unable to generate a signed URL with the current credentials. "
-                "Expected either a service account key file locally or a Cloud "
-                "Run service account with IAM signing access."
+                f"Missing Cloudflare R2 settings: {', '.join(missing)}"
             )
 
-        return {
-            "service_account_email": service_account_email,
-            "access_token": access_token,
-        }
-    
+        self.bucket_name = settings.R2_BUCKET_NAME
+        self.public_base_url = settings.R2_PUBLIC_BASE_URL.rstrip("/")
+        self.client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+            aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+            region_name="auto",
+            config=Config(signature_version="s3v4"),
+        )
+
     def generate_upload_signed_url(self, user_id: int, content_type: str) -> dict:
         """
         Generate a signed URL for uploading a profile image.
-        
+
         Returns:
             {
                 "upload_url": str,  # Signed URL for PUT request
@@ -67,49 +53,49 @@ class GCSService:
         """
         if content_type not in self.ALLOWED_CONTENT_TYPES:
             raise ValueError(f"Content type {content_type} not allowed")
-        
-        # Generate unique filename: users/{user_id}/profile_{uuid}.{ext}
+
         extension = content_type.split("/")[1]
         if extension == "jpeg":
             extension = "jpg"
         filename = f"profile-pictures/{user_id}/profile_{uuid.uuid4().hex[:12]}.{extension}"
-        
-        blob = self.bucket.blob(filename)
-        
-        # Generate signed URL valid for 15 minutes
-        expiration = timedelta(minutes=15)
-        upload_url = blob.generate_signed_url(
-            version="v4",
-            expiration=expiration,
-            method="PUT",
-            content_type=content_type,
-            **self._get_signed_url_kwargs(),
+
+        expires_in = 15 * 60
+        upload_url = self.client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": self.bucket_name,
+                "Key": filename,
+                "ContentType": content_type,
+            },
+            ExpiresIn=expires_in,
         )
-        
-        # Public URL (bucket must have public read or use signed URLs for reading)
-        public_url = f"https://storage.googleapis.com/{BUCKET_NAME}/{filename}"
-        
+        public_url = f"{self.public_base_url}/{quote(filename, safe='/')}"
+
         return {
             "upload_url": upload_url,
             "public_url": public_url,
             "filename": filename,
-            "expires_in": int(expiration.total_seconds()),
+            "expires_in": expires_in,
         }
-    
+
     def delete_old_profile_image(self, old_url: str) -> bool:
-        """Delete the old profile image from GCS when user uploads a new one."""
-        if not old_url or BUCKET_NAME not in old_url:
+        """Delete a previous profile image if it belongs to this bucket."""
+        prefix = f"{self.public_base_url}/"
+        if not old_url or not old_url.startswith(prefix):
             return False
-        
+
         try:
-            # Extract blob name from URL
-            prefix = f"https://storage.googleapis.com/{BUCKET_NAME}/"
-            if old_url.startswith(prefix):
-                blob_name = old_url[len(prefix):]
-                blob = self.bucket.blob(blob_name)
-                blob.delete()
-                return True
-        except Exception as e:
-            print(f"Error deleting old profile image: {e}")
-        
+            object_key = unquote(old_url[len(prefix):])
+            self.client.delete_object(Bucket=self.bucket_name, Key=object_key)
+            return True
+        except Exception:
+            logger.exception("Failed to delete old profile image")
+
         return False
+
+    def is_managed_profile_url(self, public_url: str, user_id: int) -> bool:
+        """Return whether a URL points to this user's profile-image prefix."""
+        expected_prefix = (
+            f"{self.public_base_url}/profile-pictures/{user_id}/profile_"
+        )
+        return bool(public_url and public_url.startswith(expected_prefix))

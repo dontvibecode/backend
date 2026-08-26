@@ -828,7 +828,7 @@ Message 7: ["Python", "Functional Programming", "Lambda", "Map", "Filter", "Redu
 
 ### ## 7. WEB SEARCH & GROUNDING REQUIREMENTS
 
-**You have access to Google Search. You MUST use it strategically to ensure accuracy and quality.**
+**You do not have live web search. Only include URLs you are confident still exist, or omit the link.**
 
 ### ## 7.1 MANDATORY: Recommended Readings
 
@@ -1496,7 +1496,7 @@ Implement a function to reverse a string.
 
 ### ## 7. WEB SEARCH & GROUNDING FOR EVALUATION
 
-**You have access to Google Search. Use it to ensure accurate evaluation when exercises involve libraries, frameworks, or APIs.**
+**You do not have live web search. Evaluate from the exercise materials and well-known language/library behaviour only.**
 
 ### ## 7.1 When to Use Web Search
 
@@ -1888,7 +1888,7 @@ Your response must be a **SINGLE, VALID JSON OBJECT** with NO markdown formattin
 
 ### ## 8. WEB SEARCH & GROUNDING FOR CODE ACCURACY
 
-**You have access to Google Search. You MUST use it to ensure syntactical accuracy when generating exercise code.**
+**You do not have live web search. Generate exercise code from well-known language and library syntax only.**
 
 ### ## 8.1 When to Use Web Search
 

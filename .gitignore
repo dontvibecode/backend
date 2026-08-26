@@ -1,3 +1,4 @@
+.env.old
 .env
 __pycache__/
 *.pyc
@@ -5,3 +6,4 @@ cloud-sql-proxy.exe
 env.yaml
 cloudrun-env.yaml
 *.json
+!cors.json

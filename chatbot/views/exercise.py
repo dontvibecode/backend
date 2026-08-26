@@ -188,10 +188,8 @@ class ExerciseBookmarkAPIView(APIView):
     API view to bookmark an exercise.
     """
 
-    def get(self, request, user_email):
-        """
-        Get all bookmarked exercises for a user.
-        """
+    def get(self, request):
+        """Get the authenticated user's bookmarked exercises."""
         exercises = Exercise.objects.filter(
             bookmarked=True, message__conversation__user__email=request.user.email
         ).values(

@@ -25,6 +25,24 @@ class MessageSerializer(serializers.ModelSerializer):
         return fields
 
 
+class ChatStreamRequestSerializer(serializers.Serializer):
+    text = serializers.CharField(required=True, allow_blank=False)
+    conversation = serializers.PrimaryKeyRelatedField(
+        queryset=Conversation.objects.all(),
+        allow_null=True,
+    )
+    experience_level = serializers.CharField(required=True)
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            fields["conversation"].queryset = Conversation.objects.filter(
+                user=request.user
+            )
+        return fields
+
+
 class ConversationSerializer(serializers.ModelSerializer):
     exercises_count = serializers.IntegerField(read_only=True, default=0)
     exercises_almost_count = serializers.IntegerField(read_only=True, default=0)
@@ -36,12 +54,6 @@ class ConversationSerializer(serializers.ModelSerializer):
                   "exercises_count", "exercises_almost_count", "exercises_correct_count"]
         read_only_fields = ["id", "created_at"]
 
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ["username", "email", "method"]
-        read_only_fields = ["id"]
-    
 class PreferencesSerializer(serializers.ModelSerializer):
     class Meta:
         model = Preferences
