@@ -559,7 +559,9 @@ class LLMService:
             else:
                 content = msg.text or ""
 
-            formatted_history.append({"role": role, "parts": [content]})
+            formatted_history.append(
+                types.Content(role=role, parts=[types.Part(text=content)])
+            )
 
         return formatted_history
 
