@@ -30,6 +30,30 @@ class PaymentIntentHandlerTests(SimpleTestCase):
             self.user.id, 200000
         )
 
+    def test_handle_payment_intent_succeeded_with_unknown_customer(self):
+        """
+        A duplicate Stripe customer must not lose a paid purchase: the
+        `user_id` we wrote at creation identifies the buyer on its own.
+        """
+        self.service._user_for_customer = MagicMock(return_value=None)
+        payment_intent = {
+            "customer": "customer_we_never_stored",
+            "metadata": {
+                "type": "token_purchase",
+                "token_amount": "200000",
+                "user_id": "123",
+            },
+        }
+
+        with patch("chatbot.services.payment.User") as user_model:
+            user_model.objects.filter.return_value.first.return_value = self.user
+            self.service.handle_payment_intent_succeeded(payment_intent)
+
+        self.service._user_for_customer.assert_not_called()
+        self.service.users.add_purchased_tokens.assert_called_once_with(
+            self.user.id, 200000
+        )
+
     def test_handle_payment_intent_succeeded_with_unrelated_payment_intent(self):
         payment_intent = {
             "customer": "customer_123",

@@ -31,9 +31,14 @@ class PaymentService:
         if user.stripe_customer_id:
             return user.stripe_customer_id
 
+        # The idempotency key matters: the frontend can fire the subscribe and
+        # token-purchase calls at once, and without it each one creates its own
+        # Stripe customer. Only the last write wins in our column, so a payment
+        # made against the other customer can no longer be traced back here.
         customer = stripe.Customer.create(
             email=user.email,
             metadata={"user_id": str(user.id)},
+            idempotency_key=f"customer-for-user-{user.id}",
         )
         user.stripe_customer_id = customer.id
         user.save(update_fields=["stripe_customer_id"])
@@ -185,6 +190,25 @@ class PaymentService:
             logger.warning("No user found for Stripe customer %s", customer_id)
         return user
 
+    def _buyer(self, customer_id, metadata):
+        """
+        Resolves who paid, preferring the `user_id` this service wrote into the
+        object's metadata when it created it.
+
+        The customer id alone is not enough: if the account ever ended up with
+        more than one Stripe customer, a real payment can arrive under the one
+        we no longer have stored, and matching only on it drops the purchase
+        silently after the money has been taken.
+        """
+        user_id = metadata.get("user_id")
+        if user_id:
+            user = User.objects.filter(id=user_id).first()
+            if user:
+                return user
+            logger.warning("Stripe metadata names unknown user %s", user_id)
+
+        return self._user_for_customer(customer_id)
+
     def handle_invoice_paid(self, invoice):
         """
         Handles the invoice.payment_succeeded event.
@@ -195,7 +219,9 @@ class PaymentService:
             logger.info("Invoice has no subscription; ignoring")
             return
 
-        user = self._user_for_customer(invoice["customer"])
+        user = self._buyer(
+            invoice["customer"], subscription_details.get("metadata") or {}
+        )
         if not user:
             return
 
@@ -211,7 +237,7 @@ class PaymentService:
         if metadata.get("type") != "token_purchase":
             return
 
-        user = self._user_for_customer(payment_intent["customer"])
+        user = self._buyer(payment_intent["customer"], metadata)
         if not user:
             return
 
