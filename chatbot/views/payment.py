@@ -32,6 +32,11 @@ class SubscribeView(APIView):
         try:
             result = self.service.create_subscription(request.user)
             return Response(result, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except stripe.error.StripeError as e:
             return Response(
                 {"error": str(e)},

@@ -47,6 +47,15 @@ class PaymentService:
     def create_subscription(self, user):
         customer_id = self.get_or_create_stripe_customer(user)
 
+        # Each call bills the customer again, so refuse rather than trust the
+        # caller to have checked. A UI that opens this endpoint on a screen the
+        # subscriber can reach twice would otherwise stack real charges.
+        existing = stripe.Subscription.list(
+            customer=customer_id, status="active", limit=1
+        )
+        if existing.data:
+            raise ValueError("Subscription already active")
+
         subscription = stripe.Subscription.create(
             customer=customer_id,
             items=[{"price": STRIPE_PRO_MEMBERSHIP_PRICE_ID}],
@@ -250,8 +259,23 @@ class PaymentService:
         Handles the customer.subscription.deleted event.
         Downgrades user back to free tier.
         """
-        user = self._user_for_customer(subscription["customer"])
+        customer_id = subscription["customer"]
+        user = self._buyer(customer_id, subscription.get("metadata") or {})
         if not user:
+            return
+
+        # A customer can hold more than one subscription: a duplicate being
+        # cleaned up, or a replacement created before the old one ends. One of
+        # them ending is not a reason to take Pro from someone still paying.
+        remaining = stripe.Subscription.list(
+            customer=customer_id, status="active", limit=1
+        )
+        if remaining.data:
+            logger.info(
+                "Subscription ended for user %s but %s is still active; keeping Pro",
+                user.id,
+                remaining.data[0].id,
+            )
             return
 
         self.users.downgrade_to_free(user)

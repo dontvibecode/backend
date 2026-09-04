@@ -25,6 +25,79 @@ def stripe_event(event_id, event_type, obj):
     )
 
 
+class CreateSubscriptionTests(SimpleTestCase):
+    def setUp(self):
+        self.service = PaymentService()
+        self.service.get_or_create_stripe_customer = MagicMock(
+            return_value="cus_123"
+        )
+
+    @patch("chatbot.services.payment.stripe.Subscription.create")
+    @patch("chatbot.services.payment.stripe.Subscription.list")
+    def test_refuses_to_subscribe_an_active_subscriber_again(
+        self, sub_list, sub_create
+    ):
+        sub_list.return_value = SimpleNamespace(
+            data=[SimpleNamespace(id="sub_existing")]
+        )
+
+        with self.assertRaisesRegex(ValueError, "already active"):
+            self.service.create_subscription(SimpleNamespace(id=1))
+
+        sub_create.assert_not_called()
+
+    @patch("chatbot.services.payment.stripe.Subscription.create")
+    @patch("chatbot.services.payment.stripe.Subscription.list")
+    def test_subscribes_when_none_is_active(self, sub_list, sub_create):
+        sub_list.return_value = SimpleNamespace(data=[])
+        sub_create.return_value = stripe.Subscription.construct_from(
+            {
+                "id": "sub_new",
+                "status": "incomplete",
+                "latest_invoice": {
+                    "confirmation_secret": {"client_secret": "cs_test"}
+                },
+            },
+            "test-api-key",
+        )
+
+        result = self.service.create_subscription(SimpleNamespace(id=1))
+
+        sub_create.assert_called_once()
+        self.assertEqual(result["client_secret"], "cs_test")
+
+
+class SubscriptionDeletedTests(SimpleTestCase):
+    def setUp(self):
+        self.service = PaymentService()
+        self.service._user_for_customer = MagicMock(
+            return_value=SimpleNamespace(id=1)
+        )
+        self.service.users = MagicMock()
+
+    @patch("chatbot.services.payment.stripe.Subscription.list")
+    def test_keeps_pro_while_another_subscription_is_active(self, sub_list):
+        sub_list.return_value = SimpleNamespace(
+            data=[SimpleNamespace(id="sub_other")]
+        )
+
+        self.service.handle_subscription_deleted(
+            {"customer": "cus_123", "metadata": {}}
+        )
+
+        self.service.users.downgrade_to_free.assert_not_called()
+
+    @patch("chatbot.services.payment.stripe.Subscription.list")
+    def test_downgrades_when_nothing_is_left(self, sub_list):
+        sub_list.return_value = SimpleNamespace(data=[])
+
+        self.service.handle_subscription_deleted(
+            {"customer": "cus_123", "metadata": {}}
+        )
+
+        self.service.users.downgrade_to_free.assert_called_once()
+
+
 class PaymentIntentHandlerTests(SimpleTestCase):
     def setUp(self):
         self.service = PaymentService()
