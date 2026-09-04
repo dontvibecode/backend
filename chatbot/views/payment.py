@@ -251,7 +251,11 @@ class StripeWebhookView(APIView):
             )
 
         event_type = event["type"]
-        data = event["data"]["object"]
+        # The SDK hands back StripeObject, which indexes like a dict but has no
+        # `.get()`, and its nested values are StripeObject too. The handlers
+        # below treat the payload as a plain mapping, so flatten it once here
+        # rather than making every handler defensive about the difference.
+        data = event["data"]["object"].to_dict()
         event_id = event["id"]
         logger.info("Received Stripe event %s (%s)", event_id, event_type)
 
