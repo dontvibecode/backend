@@ -105,6 +105,31 @@ class SpeechTextTests(SimpleTestCase):
             ],
         )
 
+    def test_display_math_is_one_cue_on_its_opening_line(self):
+        markdown = (
+            "Attention is:\n"
+            "$$\\text{softmax}(QK^T)V$$\n"
+            "$$\n"
+            "M_{ij} = -\\infty\n"
+            "$$\n"
+            "\\[ a = b \\]\n"
+            "After the equations"
+        )
+
+        self.assertEqual(
+            self.units(markdown),
+            [
+                ("text", 1, "Attention is:"),
+                ("text", 2, speech_text.EQUATION_CUE),
+                ("text", 3, speech_text.EQUATION_CUE),
+                ("text", 6, speech_text.EQUATION_CUE),
+                ("text", 7, "After the equations."),
+            ],
+        )
+
+    def test_an_equation_followed_by_text_is_not_display_math(self):
+        self.assertEqual(self.units("$$a$$ then more\nNext")[1], ("text", 2, "Next."))
+
     def test_markdown_syntax_links_and_emoji_are_not_read_aloud(self):
         markdown = (
             "### Common Mistakes\n"

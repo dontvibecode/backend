@@ -4,7 +4,8 @@
       "http://localhost:3000",
       "https://frontend-zbxw.onrender.com",
       "https://dontvibecode.com",
-      "https://www.dontvibecode.com"
+      "https://www.dontvibecode.com",
+      "https://dontvibecode.petercyli02.workers.dev"
     ],
     "AllowedMethods": ["GET", "PUT", "HEAD"],
     "AllowedHeaders": ["Content-Type"],

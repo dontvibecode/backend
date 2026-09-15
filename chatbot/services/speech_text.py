@@ -5,9 +5,9 @@ Every spoken unit remembers the (field, line) it came from, so the frontend
 can highlight the element being read. The line numbers are a contract with
 frontend/src/lib/markdownParser.tsx, which walks the same markdown the same
 way: split on "\n", count lines from 1, skip blank lines and horizontal
-rules, and treat a fenced code block as one element owned by its opening
-fence line. If that parser changes how it walks lines, change
-`_markdown_units` to match.
+rules, and treat a fenced code block or display math ($$ ... $$) as one
+element owned by its opening line. If that parser changes how it walks
+lines, change `_markdown_units` to match.
 """
 
 import hashlib
@@ -22,11 +22,14 @@ SCOPES = (SUMMARY, FULL)
 # Reading code aloud symbol by symbol is useless and expensive, so each code
 # block is replaced by one short sentence while the block is highlighted.
 CODE_BLOCK_CUE = "There's a code example on screen."
+# TeX read aloud is just as useless, so display math gets the same treatment.
+EQUATION_CUE = "There's an equation on screen."
 
 UNIT_SEPARATOR = "\n\n"
 
 # Same patterns, in the same order, as markdownParser.tsx.
 _HORIZONTAL_RULE = re.compile(r"^(-{3,}|\*{3,}|_{3,})$")
+_DISPLAY_MATH_DELIMITERS = (("$$", "$$"), ("\\[", "\\]"))
 _LINE_PATTERNS = (
     re.compile(r"^(#{1,6})\s+(.+)$"),  # heading
     re.compile(r"^>\s*(.*)$"),  # blockquote
@@ -132,16 +135,29 @@ def build_marks(units, offsets, characters, start_times):
 def _markdown_units(field, markdown):
     units = []
     in_code_block = False
+    math_close = None
 
     for line_number, line in enumerate(markdown.split("\n"), start=1):
         stripped = line.strip()
 
+        if math_close:
+            if stripped.endswith(math_close):
+                math_close = None
+            continue
         if stripped.startswith("```"):
             if not in_code_block:
                 units.append(SpeechUnit(field, line_number, CODE_BLOCK_CUE))
             in_code_block = not in_code_block
             continue
         if in_code_block or not stripped or _HORIZONTAL_RULE.match(stripped):
+            continue
+
+        display_math = _display_math(stripped)
+        if display_math:
+            close, complete = display_math
+            units.append(SpeechUnit(field, line_number, EQUATION_CUE))
+            if not complete:
+                math_close = close
             continue
 
         content = stripped
@@ -156,6 +172,26 @@ def _markdown_units(field, markdown):
             units.append(SpeechUnit(field, line_number, _with_full_stop(text)))
 
     return units
+
+
+def _display_math(line):
+    """
+    (close, complete) when the line starts display math, else None. Mirrors
+    matchDisplayMath in markdownParser.tsx: `complete` means the equation ends
+    on this line, otherwise a block runs until a line ending in `close`. An
+    equation followed by more text is not display math.
+    """
+    for open_, close in _DISPLAY_MATH_DELIMITERS:
+        if not line.startswith(open_):
+            continue
+        rest = line[len(open_) :]
+        close_at = rest.find(close)
+        if close_at == -1:
+            return close, False
+        if close_at == len(rest) - len(close):
+            return close, True
+        return None
+    return None
 
 
 def _clean_inline(text):
