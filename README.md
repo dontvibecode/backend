@@ -38,3 +38,18 @@ python manage.py runserver
 5. Point the frontend `NEXT_PUBLIC_API_URL` at the Render URL.
 
 Existing Google users keep working: the backend still verifies Google ID tokens. Existing Cloud SQL data can be dumped and restored into Neon when you are ready; this repo change does not move data for you.
+
+## Voice (ElevenLabs)
+
+AI replies and lessons can be read aloud. Premium voices come from ElevenLabs. Whenever they can't be used (no key, allowance spent, ElevenLabs down), the API returns the prepared text and the frontend reads it with the browser's built-in voice, so the feature degrades instead of breaking.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /api/chat/speech/<message_id>/` with `{"scope": "summary" or "full"}` | A 6-hour link to the narration plus timing marks for highlighting. Generates the audio first if it doesn't exist yet. |
+| `GET /api/chat/speech/voices/` | The voices the picker offers, and whether premium voices are available. |
+
+- **Generated once.** Each clip is a `SpeechClip` row plus an MP3 in R2 under `speech/`. Replays are free and never count against allowances.
+- **Allowances.** Per-user characters per rolling day (`TIER_SPEECH_DAILY_CHARACTERS` in `chatbot/services/user.py`) and an app-wide rolling 30-day budget (`ELEVENLABS_MONTHLY_CHARACTER_BUDGET`).
+- **Measured.** `python manage.py speech_stats` reports characters spent and how often stored audio saved a generation.
+
+Setup: create an API key at elevenlabs.io and set `ELEVENLABS_API_KEY` on Render only; it must never reach the frontend. Optionally shortlist voices with `ELEVENLABS_VOICE_IDS`. Free-plan audio is non-commercial and must credit ElevenLabs, which the UI does next to the voice controls.

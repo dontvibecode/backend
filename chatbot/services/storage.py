@@ -99,3 +99,32 @@ class ObjectStorageService:
             f"{self.public_base_url}/profile-pictures/{user_id}/profile_"
         )
         return bool(public_url and public_url.startswith(expected_prefix))
+
+    def upload_bytes(self, key: str, data: bytes, content_type: str) -> None:
+        """Store an object the server produced itself, such as a narration."""
+        self.client.put_object(
+            Bucket=self.bucket_name,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+
+    def generate_download_signed_url(self, key: str, expires_in: int) -> str:
+        """
+        A time-limited GET link. Used instead of the public URL for anything
+        derived from a user's private conversation.
+        """
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket_name, "Key": key},
+            ExpiresIn=expires_in,
+        )
+
+    def delete_object(self, key: str) -> bool:
+        """Delete one object by key. Failures are logged, never raised."""
+        try:
+            self.client.delete_object(Bucket=self.bucket_name, Key=key)
+            return True
+        except Exception:
+            logger.exception("Failed to delete object %s", key)
+            return False

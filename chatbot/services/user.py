@@ -25,6 +25,17 @@ BILLING_PERIOD = relativedelta(months=1)
 
 TIER_TOKEN_LIMITS = {FREE_TIER: FREE_TOKEN_LIMIT, PRO_TIER: PRO_TOKEN_LIMIT}
 
+# Characters of new ElevenLabs narration a user may generate per rolling day.
+# Replaying audio that already exists is free and never counts. For scale, a
+# full lesson is about 1,600 speakable characters and a short reply about 600.
+FREE_SPEECH_DAILY_CHARACTERS = 3_000
+PRO_SPEECH_DAILY_CHARACTERS = 15_000
+
+TIER_SPEECH_DAILY_CHARACTERS = {
+    FREE_TIER: FREE_SPEECH_DAILY_CHARACTERS,
+    PRO_TIER: PRO_SPEECH_DAILY_CHARACTERS,
+}
+
 
 class InsufficientTokensError(Exception):
     """Raised when a token charge would exceed the user's allowance."""

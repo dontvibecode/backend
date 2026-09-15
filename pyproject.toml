@@ -22,6 +22,7 @@ dependencies = [
     "stripe",
     "boto3 (>=1.43.80,<2.0.0)",
     "gevent (>=25.9.1,<26.0.0)",
+    "elevenlabs (>=2.68.0,<3.0.0)",
 ]
 
 

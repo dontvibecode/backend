@@ -100,6 +100,9 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "feedback": "3/day",
+        # Generation is already capped by character allowances; this only
+        # stops a client stuck in a loop from hammering the endpoint.
+        "speech": "120/hour",
     },
     # How many trusted reverse proxies sit in front of Django. If this number
     # is wrong the throttle key becomes client-controlled and the limit is
@@ -260,7 +263,7 @@ LOGGING = {
     },
 }
 
-# Cloudflare R2 (S3-compatible). Profile pictures only.
+# Cloudflare R2 (S3-compatible). Profile pictures, and narration under speech/.
 R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID")
 R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
 R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
@@ -273,6 +276,30 @@ STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRO_MEMBERSHIP_PRICE_ID = os.getenv("STRIPE_PRO_MEMBERSHIP_PRICE_ID")
 STRIPE_TOKEN_PACK_200K_PRICE_ID = os.getenv("STRIPE_TOKEN_PACK_200K_PRICE_ID")
+
+# ElevenLabs text-to-speech. While the key is unset, voice requests answer
+# "unavailable" and the frontend reads aloud with the browser's own voice.
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+# Flash: the fastest model, and the cheapest per character.
+ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_flash_v2_5")
+# Speech doesn't need 128 kbps; 64 halves storage and download size.
+ELEVENLABS_OUTPUT_FORMAT = os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_64")
+# "George", a premade voice that free API keys can use.
+ELEVENLABS_DEFAULT_VOICE_ID = os.getenv(
+    "ELEVENLABS_DEFAULT_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb"
+)
+# Optional shortlist for the voice picker. Empty offers every premade voice.
+ELEVENLABS_VOICE_IDS = env_list("ELEVENLABS_VOICE_IDS", [])
+# New characters the whole app may generate in any rolling 30 days. The free
+# plan is 10,000 credits a month at 0.5-1 credit per Flash character, so this
+# default cannot overdraw it.
+ELEVENLABS_MONTHLY_CHARACTER_BUDGET = int(
+    os.getenv("ELEVENLABS_MONTHLY_CHARACTER_BUDGET", "10000")
+)
+# A single clip longer than this is never sent; the browser voice reads it.
+ELEVENLABS_MAX_CLIP_CHARACTERS = int(
+    os.getenv("ELEVENLABS_MAX_CLIP_CHARACTERS", "6000")
+)
 
 # Email (SMTP). Used only by the public feedback form. Missing values do not
 # break startup; they make send_mail fail the first time someone submits it.

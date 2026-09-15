@@ -72,8 +72,12 @@ class PreferencesSerializer(serializers.ModelSerializer):
             "share_data",
             "font_size",
             "compact_mode",
+            "voice_enabled",
+            "voice_id",
+            "speech_rate",
         ]
         read_only_fields = ["id", "user"]
+        extra_kwargs = {"speech_rate": {"min_value": 0.5, "max_value": 2.0}}
 
 
 class UserProfileUpdateSerializer(serializers.Serializer):
@@ -139,3 +143,8 @@ class TokenUsageSerializer(serializers.ModelSerializer):
         model = TokenUsage
         fields = ["id", "user", "token_used", "timestamp", "tokens_remaining", "action"]
         read_only_fields = ["id", "user", "timestamp"]
+
+
+class SpeechRequestSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(choices=["summary", "full"], default="full")
+    voice_id = serializers.CharField(max_length=64, required=False, allow_blank=True)

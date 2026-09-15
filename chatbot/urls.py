@@ -10,6 +10,7 @@ from .views.token import TokenAPIView, TokenUsageAPIView
 from .views.upload import ProfileImageConfirmView, ProfileImageUploadURLView
 from .views.payment import ResumeSubscriptionView, SubscribeView, BuyTokensView, CancelSubscriptionView, SetupIntentView, UpdatePaymentMethodView, StripeWebhookView
 from .views.feedback import FeedbackView
+from .views.speech import SpeechClipAPIView, SpeechVoicesAPIView
 
 app_name = 'chatbot'
 
@@ -39,4 +40,6 @@ urlpatterns = [
     path('payments/update-method/', UpdatePaymentMethodView.as_view(), name='update-payment-method'),
     path('webhooks/stripe/', StripeWebhookView.as_view(), name='stripe-webhook'),
     path('feedback/', FeedbackView.as_view(), name='send-feedback'),
+    path('speech/voices/', SpeechVoicesAPIView.as_view(), name='speech_voices'),
+    path('speech/<int:message_id>/', SpeechClipAPIView.as_view(), name='speech_clip'),
 ]
