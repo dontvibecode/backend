@@ -47,7 +47,7 @@ class Preferences(models.Model):
         choices=[("light", "Light"), ("dark", "Dark"), ("system", "System")],
         default="light",
     )
-    tab_size = models.IntegerField(default=2)
+    tab_size = models.IntegerField(default=4)
     accent_color = models.CharField(max_length=20, default="blue")
     language = models.CharField(max_length=10, default="en")
     profile_image = models.CharField(max_length=255, null=True, blank=True)
