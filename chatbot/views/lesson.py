@@ -30,6 +30,7 @@ class LessonAPIView(APIView):
 
         if lesson.shared:
             lesson.shared = False
+            lesson.shared_by = None
             lesson.shared_at = None
         else:
             lesson.shared = True
