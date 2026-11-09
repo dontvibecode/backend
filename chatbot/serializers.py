@@ -11,7 +11,22 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Message
-        fields = ["id", "created_at", "from_user", "conversation", "model_used", "text", "json", "experience_level", "thought"]
+        fields = [
+            "id",
+            "created_at",
+            "from_user",
+            "conversation",
+            "model_used",
+            "text",
+            "json",
+            "experience_level",
+            "thought",
+            "shared",
+            "shared_at",
+            "shared_by",
+            "likes",
+            "forks",
+        ]
         read_only_fields = ["id", "created_at"]
 
     def get_fields(self):
@@ -50,9 +65,20 @@ class ConversationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Conversation
-        fields = ["id", "user", "title", "last_active", "pinned", "created_at", "tags", 
-                  "exercises_count", "exercises_almost_count", "exercises_correct_count"]
+        fields = [
+            "id",
+            "user",
+            "title",
+            "last_active",
+            "pinned",
+            "created_at",
+            "tags",
+            "exercises_count",
+            "exercises_almost_count",
+            "exercises_correct_count",
+        ]
         read_only_fields = ["id", "created_at"]
+
 
 class PreferencesSerializer(serializers.ModelSerializer):
     class Meta:
@@ -83,16 +109,24 @@ class PreferencesSerializer(serializers.ModelSerializer):
 class UserProfileUpdateSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150, required=False)
     preferences = PreferencesSerializer(required=False)
-    
-    
+
+
 class UserResponseSerializer(serializers.ModelSerializer):
     preferences = PreferencesSerializer(read_only=True)
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "preferences", "membership", "subscription_active", "membership_expires_at"]
+        fields = [
+            "id",
+            "username",
+            "email",
+            "preferences",
+            "membership",
+            "subscription_active",
+            "membership_expires_at",
+        ]
         read_only_fields = fields
-    
+
 
 class ExerciseFileSubmissionsSerializer(serializers.Serializer):
     exercise_file_ids = serializers.ListField(
@@ -121,12 +155,11 @@ class ExerciseFileSubmissionsSerializer(serializers.Serializer):
 
 class ExerciseSubmissionSerializer(ExerciseFileSubmissionsSerializer):
     ability_level = serializers.ChoiceField(
-        choices=["beginner", "novice", "junior", "senior"],
-        required=True
+        choices=["beginner", "novice", "junior", "senior"], required=True
     )
     message_id = serializers.IntegerField(required=True)
     exercise_id = serializers.IntegerField(required=True)
-    
+
 
 class FeedbackSerializer(serializers.Serializer):
     """
