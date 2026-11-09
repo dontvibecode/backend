@@ -98,6 +98,11 @@ class Message(models.Model):
     json = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     thought = models.TextField(null=True, blank=True)
+    shared = models.BooleanField(default=False, null=True, blank=True)
+    shared_at = models.DateTimeField(null=True, blank=True)
+    shared_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    likes = models.IntegerField(default=0, null=True, blank=True)
+    forks = models.IntegerField(default=0, null=True, blank=True)
 
     def __str__(self):
         if self.from_user:
