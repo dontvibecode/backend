@@ -12,7 +12,7 @@ from .views.upload import ProfileImageConfirmView, ProfileImageUploadURLView
 from .views.payment import ResumeSubscriptionView, SubscribeView, BuyTokensView, CancelSubscriptionView, SetupIntentView, UpdatePaymentMethodView, StripeWebhookView
 from .views.feedback import FeedbackView
 from .views.speech import SpeechClipAPIView, SpeechVoicesAPIView
-from .views.lesson import LessonAPIView
+from .views.lesson import LessonShareAPIView, SharedLessonListAPIView
 
 app_name = 'chatbot'
 
@@ -44,6 +44,6 @@ urlpatterns = [
     path('feedback/', FeedbackView.as_view(), name='send-feedback'),
     path('speech/voices/', SpeechVoicesAPIView.as_view(), name='speech_voices'),
     path('speech/<int:message_id>/', SpeechClipAPIView.as_view(), name='speech_clip'),
-    path('lessons/', LessonAPIView.as_view(), name='lessons'),
-    path('lessons/share/<int:lesson_id>/', LessonAPIView.as_view(), name='lessons'),
+    path('lessons/', SharedLessonListAPIView.as_view(), name='shared_lessons'),
+    path('lessons/share/<int:lesson_id>/', LessonShareAPIView.as_view(), name='share_lesson'),
 ]
