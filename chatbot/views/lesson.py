@@ -4,18 +4,47 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from chatbot.models import Message
-from chatbot.serializers import MessageSerializer
+from chatbot.services.lesson import (
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    MAX_QUERY_LENGTH,
+    InvalidCursor,
+    decode_cursor,
+    search_shared_lessons,
+    update_search_vector,
+)
 
 
-class LessonAPIView(APIView):
+class SharedLessonListAPIView(APIView):
     def get(self, request):
         """
-        Fetch all shared lessons across all users.
+        One page of lessons shared by any user, optionally filtered by `q`.
+        Pass back `next_cursor` as `cursor` to get the following page.
         """
-        lessons = Message.objects.filter(shared=True).order_by("-created_at")
-        serializer = MessageSerializer(lessons, many=True)
-        return Response(status=status.HTTP_200_OK, data={"lessons": serializer.data})
+        query = request.query_params.get("q", "").strip()[:MAX_QUERY_LENGTH]
 
+        try:
+            limit = int(request.query_params.get("limit", DEFAULT_PAGE_SIZE))
+        except ValueError:
+            limit = DEFAULT_PAGE_SIZE
+        limit = max(1, min(limit, MAX_PAGE_SIZE))
+
+        raw_cursor = request.query_params.get("cursor")
+        try:
+            cursor = decode_cursor(raw_cursor) if raw_cursor else None
+        except InvalidCursor:
+            return Response(
+                {"error": "Invalid cursor"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        lessons, next_cursor = search_shared_lessons(query, cursor, limit)
+        return Response(
+            {"results": lessons, "next_cursor": next_cursor},
+            status=status.HTTP_200_OK,
+        )
+
+
+class LessonShareAPIView(APIView):
     def post(self, request, lesson_id):
         try:
             lesson = Message.objects.select_related("conversation").get(id=lesson_id)
@@ -38,8 +67,8 @@ class LessonAPIView(APIView):
             lesson.shared_at = timezone.now()
 
         lesson.save(update_fields=["shared", "shared_by", "shared_at"])
+        update_search_vector(lesson.id, lesson.shared)
         return Response(
             status=status.HTTP_200_OK,
             data={"lesson_id": lesson.id, "shared": lesson.shared},
         )
-

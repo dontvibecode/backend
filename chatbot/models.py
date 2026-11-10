@@ -1,3 +1,5 @@
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 from django.utils import timezone
 
@@ -103,6 +105,9 @@ class Message(models.Model):
     shared_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     likes = models.IntegerField(default=0, null=True, blank=True)
     forks = models.IntegerField(default=0, null=True, blank=True)
+    # Pre-processed words of a shared lesson, filled in when it is shared and
+    # cleared when it is unshared, so search reads an index instead of the JSON.
+    search_vector = SearchVectorField(null=True, editable=False)
 
     def __str__(self):
         if self.from_user:
@@ -111,6 +116,16 @@ class Message(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+        indexes = [
+            GinIndex(fields=["search_vector"], name="message_search_gin"),
+            # Covers the community feed's filter and sort order, so each page
+            # is read straight off the index however many lessons are shared.
+            models.Index(
+                fields=["-shared_at", "-id"],
+                name="shared_lesson_feed",
+                condition=models.Q(shared=True),
+            ),
+        ]
 
 
 class Exercise(models.Model):
